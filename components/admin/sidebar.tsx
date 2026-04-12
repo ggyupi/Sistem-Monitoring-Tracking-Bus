@@ -1,8 +1,13 @@
 "use client";
 
 import {
+  BusFront,
+  CreditCard,
   LayoutDashboard,
   LogOut,
+  MapPinned,
+  Route,
+  ReceiptText,
   Settings,
   Shield,
   Users,
@@ -24,6 +29,11 @@ type SidebarItem = {
 
 const defaultItems: SidebarItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { label: "Buses", href: "/admin/buses", icon: BusFront },
+  { label: "Routes", href: "/admin/routes", icon: Route },
+  { label: "Stations", href: "/admin/stations", icon: MapPinned },
+  { label: "Cards", href: "/admin/cards", icon: CreditCard },
+  { label: "Transactions", href: "/admin/transactions", icon: ReceiptText },
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "Roles", href: "/admin/roles", icon: Shield },
   { label: "Settings", href: "/admin/settings", icon: Settings },
