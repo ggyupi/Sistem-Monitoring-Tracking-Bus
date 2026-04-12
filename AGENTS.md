@@ -90,6 +90,15 @@ Error item rules:
 - Use `react-hot-toast` for client-side error/success feedback.
 - For client auth flows, use `authClient` from `lib/auth-client.ts`.
 
+### 7.1) Data Fetching & Mutation Convention (Required)
+
+- For client-side data fetching and mutations, use TanStack React Query (`@tanstack/react-query`) as the default.
+- Use `useQuery` for reads and `useMutation` for create/update/delete actions.
+- Do not call `fetch` directly inside UI components for CRUD flows without React Query wrappers.
+- Define stable query keys and invalidate relevant keys after successful mutations.
+- Every data-loading and mutation flow must expose clear UI states: loading, submitting/pending, success feedback, and error feedback.
+- Disable action buttons while mutation is pending to prevent duplicate submissions.
+
 ### 8) API Handler Checklist
 
 When creating a new endpoint in `pages/api/**`, follow this order:
