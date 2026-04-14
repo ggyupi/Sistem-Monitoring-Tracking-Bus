@@ -46,7 +46,7 @@ export default function Login() {
       email: values.email,
       password: values.password,
       rememberMe: values.rememberMe,
-      callbackURL: "/",
+      callbackURL: "/user",
     });
 
     if (error) {
