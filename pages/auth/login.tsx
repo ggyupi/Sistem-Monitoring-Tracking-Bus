@@ -55,7 +55,7 @@ export default function Login() {
     }
 
     toast.success("Login berhasil");
-    await router.push("/");
+    await router.push("/user");
   };
 
   return (
