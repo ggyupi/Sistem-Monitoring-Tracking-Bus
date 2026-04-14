@@ -20,7 +20,7 @@ import { toast } from "react-hot-toast";
 import { buttonVariants } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
-
+import { useState, useRef, useEffect } from "react";
 type SidebarItem = {
   label: string;
   href: string;
@@ -48,6 +48,10 @@ export function AdminSidebar({
   className,
   items = defaultItems,
 }: AdminSidebarProps) {
+  // fitur drag to resize sidebar, masih buggy, nanti diperbaiki
+  const [collapsed, setCollapsed] = useState(false);
+  // fitur drag to resize sidebar, masih buggy, nanti diperbaiki
+
   const router = useRouter();
 
   const handleSignOut = async () => {
@@ -64,16 +68,44 @@ export function AdminSidebar({
 
   return (
     <aside
-      className={cn("flex h-full w-72 flex-col border-r bg-card", className)}
+      className={cn(
+        "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out",
+        collapsed ? "w-20" : "w-64",
+      )}
     >
-      <div className="border-b px-4 py-4">
-        <p className="text-sm font-semibold text-foreground">Admin Panel</p>
-        <p className="text-xs text-muted-foreground">
-          Kelola pengguna dan konfigurasi aplikasi
-        </p>
+      <div className="mb-6 px-4 pt-6">
+        <div className="flex items-center justify-between">
+          {/* TITLE (TIDAK HILANG, CUMA FADE) */}
+          <div
+            className={cn(
+              "transition-all duration-300 origin-left",
+              collapsed
+                ? "scale-0 opacity-0 w-0"
+                : "scale-100 opacity-100 w-auto",
+            )}
+          >
+            <div className="flex flex-col min-w-max">
+              <h1 className="text-xl font-bold tracking-tight text-primary leading-none">
+                BusControl
+              </h1>
+              <p className="text-xs text-muted-foreground mt-1">
+                IoT Monitoring System
+              </p>
+            </div>
+          </div>
+
+          {/* TOGGLE */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="rounded-lg p-2 hover:bg-sidebar-accent transition"
+          >
+            {collapsed ? "👉" : "👈"}
+          </button>
+        </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 p-3">
+      {/* ================= NAV ================= */}
+      <nav className="flex flex-1 flex-col gap-1 px-3">
         {items.map((item) => {
           const active =
             router.pathname === item.href ||
@@ -84,31 +116,45 @@ export function AdminSidebar({
               key={item.href}
               href={item.href}
               className={cn(
-                buttonVariants({
-                  variant: active ? "secondary" : "ghost",
-                  size: "sm",
-                }),
-                "w-full justify-start",
+                "flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
               )}
             >
-              <item.icon data-icon="inline-start" />
-              {item.label}
+              {/* ICON (FIX SIZE) */}
+              <item.icon className="w-5 h-5 shrink-0" />
+
+              {/* TEXT */}
+              <span
+                className={cn(
+                  "transition-all duration-200 origin-left",
+                  collapsed ? "scale-0 opacity-0 w-0" : "scale-100 opacity-100",
+                )}
+              >
+                {item.label}
+              </span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t p-3">
+      {/* ================= FOOTER ================= */}
+      <div className="mt-auto border-t border-sidebar-border p-3">
         <button
-          type="button"
           onClick={handleSignOut}
-          className={cn(
-            buttonVariants({ variant: "outline", size: "sm" }),
-            "w-full justify-start",
-          )}
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition"
         >
-          <LogOut data-icon="inline-start" />
-          Logout
+          <LogOut className="w-5 h-5 shrink-0" />
+
+          <span
+            className={cn(
+              "transition-all duration-200 origin-left",
+              collapsed ? "scale-0 opacity-0 w-0" : "scale-100 opacity-100",
+            )}
+          >
+            Logout
+          </span>
         </button>
       </div>
     </aside>

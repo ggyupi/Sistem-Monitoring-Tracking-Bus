@@ -45,3 +45,21 @@ export default function AdminPage() {
     </AdminLayout>
   );
 }
+// import AdminLayout from "@/components/layout/AdminLayout";
+
+// export default function Dashboard() {
+//   return (
+//     <AdminLayout>
+//       <div className="grid grid-cols-3 gap-4">
+//         <div className="bg-card p-4 rounded-xl border border-border">
+//           <p className="text-muted-foreground">Total Bus</p>
+//           <h2 className="text-2xl font-bold">10</h2>
+//         </div>
+//         <div className="bg-card p-4 rounded-xl border border-border">
+//           <p className="text-muted-foreground">RFID</p>
+//           <h2 className="text-2xl font-bold">20</h2>
+//         </div>
+//       </div>
+//     </AdminLayout>
+//   );
+// }
