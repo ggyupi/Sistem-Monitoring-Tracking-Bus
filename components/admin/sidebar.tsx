@@ -139,7 +139,10 @@ export function AdminSidebar({
             className="rounded-lg p-2 hover:bg-sidebar-accent transition-all duration-300 flex items-center justify-center"
           >
             {isCollapsed ? (
-              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+              <>
+                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                <GripVertical className="h-5 w-5 text-muted-foreground/50" />
+              </>
             ) : (
               <div className="flex items-center gap-1">
                 <GripVertical className="h-5 w-5 text-muted-foreground/50" />
