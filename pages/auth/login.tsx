@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
+import { UserRole } from "@/types/user-role";
 
 const loginSchema = z.object({
   email: z.email("Email tidak valid"),
@@ -46,7 +47,6 @@ export default function Login() {
       email: values.email,
       password: values.password,
       rememberMe: values.rememberMe,
-      callbackURL: "/user",
     });
 
     if (error) {
@@ -54,8 +54,27 @@ export default function Login() {
       return;
     }
 
-    toast.success("Login berhasil");
-    await router.push("/user");
+    try {
+      const response = await fetch("/api/user/me", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!response.ok) {
+        throw new Error("Gagal mengambil data pengguna");
+      }
+
+      const payload = await response.json();
+      const user = payload.data;
+      const targetRoute =
+        user?.role === UserRole.ADMIN ? "/admin" : "/user";
+
+      toast.success("Login berhasil");
+      await router.push(targetRoute);
+    } catch {
+      toast.error("Login berhasil, tetapi gagal menentukan halaman tujuan.");
+      await router.push("/");
+    }
   };
 
   return (
