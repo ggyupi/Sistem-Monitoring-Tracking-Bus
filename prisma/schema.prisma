@@ -90,10 +90,11 @@ model Verification {
 
 // BUS
 model Bus {
-  id          String  @id @default(cuid())
-  busCode     String  @unique
-  plateNumber String
-  isActive    Boolean @default(true)
+  id             String  @id @default(cuid())
+  busCode        String  @unique
+  plateNumber    String
+  isActive       Boolean @default(true)
+  passengerCount Int     @default(0)
 
   // Relasi ke Route: Setiap bus terdaftar di satu rute tertentu
   routeId String?

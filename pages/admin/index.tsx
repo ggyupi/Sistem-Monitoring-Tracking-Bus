@@ -20,7 +20,7 @@ const menuItems = [
   {
     label: "Kelola data bus",
     description: "Tambahkan dan kelola armada bus Anda.",
-    href: "/admin/bus",
+    href: "/admin/buses",
     icon: BusFront,
   },
   {

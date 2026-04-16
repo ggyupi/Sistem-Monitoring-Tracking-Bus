@@ -12,6 +12,7 @@ export type BusItem = {
   busCode: string;
   plateNumber: string;
   isActive: boolean;
+  passengerCount: number;
   routeId: string | null;
   route: RouteOption | null;
 };
@@ -47,6 +48,8 @@ export function useAdminBuses(search: string) {
 
       return requestApi<BusesListPayload>(url);
     },
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 }
 

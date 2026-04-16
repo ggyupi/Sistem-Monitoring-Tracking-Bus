@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import { AdminLayout } from "@/components/admin/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardDescription, CardTitle } from "@/components/ui/card";
@@ -13,65 +14,42 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Download, Edit3, Plus, Search, Trash2 } from "lucide-react";
+import {
+  BusItem,
+  useAdminBuses,
+  useCreateBusMutation,
+  useDeleteBusMutation,
+  useUpdateBusMutation,
+} from "@/lib/hooks/use-admin-buses";
 
-type AdminBusItem = {
-  id: string;
+type BusFormValues = {
   busCode: string;
   plateNumber: string;
+  routeId: string | null;
   isActive: boolean;
-  routeId?: string;
-  route?: string;
 };
 
-const initialBuses: AdminBusItem[] = [
-  {
-    id: "b1",
-    busCode: "BUS-001",
-    plateNumber: "B 1234 SQA",
-    route: "Galaxy Express",
-    isActive: true,
-  },
-  {
-    id: "b2",
-    busCode: "BUS-002",
-    plateNumber: "B 5678 TXY",
-    route: "Galaxy Express",
-    isActive: true,
-  },
-  {
-    id: "b3",
-    busCode: "BUS-003",
-    plateNumber: "B 9901 ZZ",
-    route: "CityLink Metro",
-    isActive: false,
-  },
-  {
-    id: "b4",
-    busCode: "BUS-004",
-    plateNumber: "B 1111 AA",
-    isActive: true,
-  },
-];
-
-const defaultFormValues = {
+const defaultFormValues: BusFormValues = {
   busCode: "",
   plateNumber: "",
-  route: "",
+  routeId: null,
   isActive: true,
 };
 
 export default function AdminBusPage() {
-  const [busList, setBusList] = useState<AdminBusItem[]>(initialBuses);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingBus, setEditingBus] = useState<AdminBusItem | null>(null);
-  const [formValues, setFormValues] = useState<{
-    busCode: string;
-    plateNumber: string;
-    route: string;
-    isActive: boolean;
-  }>(defaultFormValues);
+  const [editingBus, setEditingBus] = useState<BusItem | null>(null);
+  const [formValues, setFormValues] = useState<BusFormValues>(defaultFormValues);
+
+  const busesQuery = useAdminBuses(search);
+  const createBusMutation = useCreateBusMutation();
+  const updateBusMutation = useUpdateBusMutation();
+  const deleteBusMutation = useDeleteBusMutation();
+
+  const busList = useMemo(() => busesQuery.data?.buses ?? [], [busesQuery.data]);
+  const routeOptions = useMemo(() => busesQuery.data?.routes ?? [], [busesQuery.data]);
 
   const filteredBuses = useMemo(
     () =>
@@ -81,7 +59,7 @@ export default function AdminBusPage() {
           !query ||
           busItem.busCode.toLowerCase().includes(query) ||
           busItem.plateNumber.toLowerCase().includes(query) ||
-          (busItem.route && busItem.route.toLowerCase().includes(query));
+          (busItem.route?.routeName.toLowerCase().includes(query) ?? false);
 
         const matchesStatus =
           statusFilter === "ALL" ||
@@ -94,6 +72,8 @@ export default function AdminBusPage() {
   );
 
   const activeCount = busList.filter((item) => item.isActive).length;
+  const totalPassengers = busList.reduce((sum, busItem) => sum + (busItem.passengerCount ?? 0), 0);
+  const isSaving = createBusMutation.isPending || updateBusMutation.isPending;
 
   const openCreateDialog = () => {
     setEditingBus(null);
@@ -101,12 +81,12 @@ export default function AdminBusPage() {
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (busItem: AdminBusItem) => {
+  const openEditDialog = (busItem: BusItem) => {
     setEditingBus(busItem);
     setFormValues({
       busCode: busItem.busCode,
       plateNumber: busItem.plateNumber,
-      route: busItem.route || "",
+      routeId: busItem.route?.id ?? null,
       isActive: busItem.isActive,
     });
     setIsDialogOpen(true);
@@ -118,30 +98,46 @@ export default function AdminBusPage() {
     setIsDialogOpen(false);
   };
 
-  const saveBus = () => {
+  const saveBus = async () => {
     if (!formValues.busCode || !formValues.plateNumber) {
+      toast.error("Kode bus dan nomor polisi wajib diisi");
       return;
     }
 
-    if (editingBus) {
-      setBusList((current) =>
-        current.map((item) => (item.id === editingBus.id ? { ...item, ...formValues } : item)),
-      );
-    } else {
-      setBusList((current) => [
-        {
-          id: `bus-${Date.now()}`,
-          ...formValues,
-        },
-        ...current,
-      ]);
+    try {
+      if (editingBus) {
+        await updateBusMutation.mutateAsync({
+          id: editingBus.id,
+          payload: {
+            busCode: formValues.busCode,
+            plateNumber: formValues.plateNumber,
+            isActive: formValues.isActive,
+            routeId: formValues.routeId,
+          },
+        });
+        toast.success("Bus berhasil diperbarui");
+      } else {
+        await createBusMutation.mutateAsync({
+          busCode: formValues.busCode,
+          plateNumber: formValues.plateNumber,
+          isActive: formValues.isActive,
+          routeId: formValues.routeId,
+        });
+        toast.success("Bus berhasil ditambahkan");
+      }
+      resetDialog();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal menyimpan bus");
     }
-
-    resetDialog();
   };
 
-  const deleteBus = (id: string) => {
-    setBusList((current) => current.filter((item) => item.id !== id));
+  const deleteBus = async (id: string) => {
+    try {
+      await deleteBusMutation.mutateAsync(id);
+      toast.success("Bus berhasil dihapus");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal menghapus bus");
+    }
   };
 
   return (
@@ -167,7 +163,7 @@ export default function AdminBusPage() {
           </div>
         </section>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader>
               <CardTitle>Total Armada</CardTitle>
@@ -185,6 +181,12 @@ export default function AdminBusPage() {
               <CardTitle>Status Nonaktif</CardTitle>
             </CardHeader>
             <CardContent className="text-4xl font-semibold text-foreground">{busList.length - activeCount}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Total Penumpang</CardTitle>
+            </CardHeader>
+            <CardContent className="text-4xl font-semibold text-foreground">{totalPassengers}</CardContent>
           </Card>
         </div>
 
@@ -230,6 +232,7 @@ export default function AdminBusPage() {
                   <th className="px-4 py-3">Kode Bus</th>
                   <th className="px-4 py-3">Nomor Polisi</th>
                   <th className="px-4 py-3">Route</th>
+                  <th className="px-4 py-3">Penumpang</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Aksi</th>
                 </tr>
@@ -240,10 +243,11 @@ export default function AdminBusPage() {
                     key={busItem.id}
                     className="rounded-[18px] border border-border bg-card text-sm shadow-sm"
                   >
-                    <td className="px-4 py-4 align-top font-medium text-foreground">{busItem.busCode}</td>
+                    <td className="px-4 py-4 align-top font-medium text-foreground">{busItem.id}</td>
                     <td className="px-4 py-4 align-top text-foreground">{busItem.busCode}</td>
                     <td className="px-4 py-4 align-top text-muted-foreground">{busItem.plateNumber}</td>
-                    <td className="px-4 py-4 align-top text-muted-foreground">{busItem.route || "-"}</td>
+                    <td className="px-4 py-4 align-top text-muted-foreground">{busItem.route?.routeName ?? "-"}</td>
+                    <td className="px-4 py-4 align-top text-foreground">{busItem.passengerCount}</td>
                     <td className="px-4 py-4 align-top">
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
@@ -260,7 +264,12 @@ export default function AdminBusPage() {
                         <Button size="sm" variant="outline" onClick={() => openEditDialog(busItem)}>
                           <Edit3 className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="destructive" onClick={() => deleteBus(busItem.id)}>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteBus(busItem.id)}
+                          disabled={deleteBusMutation.isPending}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -269,7 +278,7 @@ export default function AdminBusPage() {
                 ))}
                 {filteredBuses.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Tidak ada bus yang sesuai dengan filter.
                     </td>
                   </tr>
@@ -312,11 +321,24 @@ export default function AdminBusPage() {
             <div className="grid gap-2 md:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="route">Route</Label>
-                <Input
+                <select
                   id="route"
-                  value={formValues.route}
-                  onChange={(event) => setFormValues({ ...formValues, route: event.target.value })}
-                />
+                  value={formValues.routeId ?? ""}
+                  onChange={(event) =>
+                    setFormValues({
+                      ...formValues,
+                      routeId: event.target.value || null,
+                    })
+                  }
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Pilih rute (opsional)</option>
+                  {routeOptions.map((route) => (
+                    <option key={route.id} value={route.id}>
+                      {route.routeName}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="grid gap-2">
                 <Label>Status</Label>
@@ -343,11 +365,17 @@ export default function AdminBusPage() {
           </div>
 
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button variant="outline" onClick={resetDialog}>
+            <Button variant="outline" onClick={resetDialog} disabled={isSaving}>
               Batal
             </Button>
-            <Button type="button" onClick={saveBus}>
-              {editingBus ? "Simpan Perubahan" : "Tambah Bus"}
+            <Button type="button" onClick={saveBus} disabled={isSaving}>
+              {editingBus
+                ? updateBusMutation.isPending
+                  ? "Menyimpan..."
+                  : "Simpan Perubahan"
+                : createBusMutation.isPending
+                ? "Menambahkan..."
+                : "Tambah Bus"}
             </Button>
           </DialogFooter>
         </DialogContent>
