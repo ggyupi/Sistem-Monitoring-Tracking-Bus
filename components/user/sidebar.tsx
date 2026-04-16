@@ -3,15 +3,16 @@
 import {
   LayoutDashboard,
   LogOut,
+  MapPinned,
   Settings,
   User,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { toast } from "react-hot-toast";
 
-import { buttonVariants } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,8 @@ type SidebarItem = {
 
 const defaultItems: SidebarItem[] = [
   { label: "Dashboard", href: "/user", icon: LayoutDashboard },
+  { label: "Tracking Bus", href: "/realtime-map", icon: MapPinned },
+  { label: "Penumpang", href: "/user/penumpang", icon: Users },
   { label: "Profile", href: "/user/profile", icon: User },
   { label: "Settings", href: "/user/settings", icon: Settings },
 ];
@@ -52,16 +55,25 @@ export function UserSidebar({
 
   return (
     <aside
-      className={cn("flex h-full w-72 flex-col border-r bg-card", className)}
+      className={cn(
+        "fixed left-0 top-0 z-40 flex w-64 h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300 ease-in-out",
+        className,
+      )}
     >
-      <div className="border-b px-4 py-4">
-        <p className="text-sm font-semibold text-foreground">User Panel</p>
-        <p className="text-xs text-muted-foreground">
-          Kelola akun dan preferensi kamu
-        </p>
+      <div className="mb-6 px-4 pt-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-primary leading-none">
+              BusWayCAMPUS
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              IoT Monitoring System
+            </p>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 p-3">
+      <nav className="flex flex-1 flex-col gap-1 px-3">
         {items.map((item) => {
           const active =
             router.pathname === item.href ||
@@ -72,30 +84,26 @@ export function UserSidebar({
               key={item.href}
               href={item.href}
               className={cn(
-                buttonVariants({
-                  variant: active ? "secondary" : "ghost",
-                  size: "sm",
-                }),
-                "w-full justify-start",
+                "flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
               )}
             >
-              <item.icon data-icon="inline-start" />
-              {item.label}
+              <item.icon className="w-5 h-5 shrink-0" />
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t p-3">
+      <div className="mt-auto border-t border-sidebar-border p-3">
         <button
           type="button"
           onClick={handleSignOut}
-          className={cn(
-            buttonVariants({ variant: "outline", size: "sm" }),
-            "w-full justify-start",
-          )}
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium text-red-500 bg-white hover:bg-red-500 hover:text-white transition"
         >
-          <LogOut data-icon="inline-start" />
+          <LogOut className="w-5 h-5 shrink-0" />
           Logout
         </button>
       </div>

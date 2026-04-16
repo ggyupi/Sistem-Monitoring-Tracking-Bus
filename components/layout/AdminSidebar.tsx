@@ -6,7 +6,7 @@ export function AdminSidebar() {
       <h1 className="text-xl font-bold mb-6">BusControl</h1>
       <nav className="space-y-2">
         <Link href="/admin" className="block p-2 rounded bg-sidebar-accent">Dashboard</Link>
-        <Link href="/admin/bus" className="block p-2 rounded hover:bg-sidebar-accent">Bus</Link>
+        <Link href="/admin/buses" className="block p-2 rounded hover:bg-sidebar-accent">Bus</Link>
         <Link href="/admin/rfid" className="block p-2 rounded hover:bg-sidebar-accent">RFID</Link>
       </nav>
     </aside>

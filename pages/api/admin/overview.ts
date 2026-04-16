@@ -31,7 +31,7 @@ export default async function handler(
     });
   }
 
-  const [users, buses, routes, stations, cards, transactions] =
+  const [users, buses, routes, stations, cards, transactions, activeBuses, passengerAggregate] =
     await prisma.$transaction([
       prisma.user.count(),
       prisma.bus.count(),
@@ -39,14 +39,24 @@ export default async function handler(
       prisma.station.count(),
       prisma.card.count(),
       prisma.transaction.count(),
+      prisma.bus.count({ where: { isActive: true } }),
+      prisma.bus.aggregate({ _sum: { passengerCount: true } }),
     ]);
+
+  const inactiveBuses = buses - activeBuses;
+  const totalPassengerCount = passengerAggregate._sum.passengerCount ?? 0;
+  const uptimeSeconds = Math.floor(process.uptime());
 
   return ApiResponses.success(res, {
     users,
     buses,
+    activeBuses,
+    inactiveBuses,
     routes,
     stations,
     cards,
     transactions,
+    totalPassengerCount,
+    uptimeSeconds,
   });
 }

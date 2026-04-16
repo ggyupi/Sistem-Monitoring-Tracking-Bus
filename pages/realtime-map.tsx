@@ -770,6 +770,157 @@ export default function RealtimeMapPage() {
         </section>
       </main>
 
+        <Dialog open={gpsDialogOpen} onOpenChange={setGpsDialogOpen}>
+          <DialogContent className="max-w-lg rounded-2xl border border-[#245bb0]/16 bg-white/95">
+            <DialogHeader>
+              <DialogTitle className="text-xl text-[#173330]">
+                Izinkan Akses Lokasi GPS
+              </DialogTitle>
+              <DialogDescription className="text-sm leading-7 text-[#173330]/70">
+                Buswy membutuhkan lokasi kamu untuk menampilkan titik posisi saat
+                ini di peta realtime dan membantu estimasi kedekatan bus.
+              </DialogDescription>
+            </DialogHeader>
+
+            {gpsError ? (
+              <p className="rounded-xl border border-[#e86f3f]/25 bg-[#fff4ef] px-4 py-3 text-sm text-[#b3451c]">
+                {gpsError}
+              </p>
+            ) : null}
+
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setGpsDialogOpen(false)}
+              >
+                Nanti Saja
+              </Button>
+              <Button
+                type="button"
+                onClick={handleRequestGpsAccess}
+                disabled={gpsLoading}
+                className="bg-[#173330] text-[#f4f1e8] hover:bg-[#112927]"
+              >
+                {gpsLoading ? "Meminta Akses..." : "Izinkan GPS"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <style jsx>{`
+          .aurora-mesh {
+            background:
+              radial-gradient(
+                circle at 14% 16%,
+                rgba(122, 183, 255, 0.34),
+                transparent 32%
+              ),
+              radial-gradient(
+                circle at 82% 20%,
+                rgba(98, 244, 218, 0.28),
+                transparent 35%
+              ),
+              radial-gradient(
+                circle at 50% 82%,
+                rgba(255, 177, 102, 0.2),
+                transparent 30%
+              );
+            animation: mesh-float 14s ease-in-out infinite alternate;
+          }
+
+          .gradient-orb {
+            filter: blur(56px);
+            opacity: 0.5;
+            animation: orb-drift 18s ease-in-out infinite;
+          }
+
+          .orb-a {
+            background: #8bc6ff;
+          }
+
+          .orb-b {
+            background: #a4f4eb;
+            animation-delay: 2s;
+          }
+
+          .orb-c {
+            background: #ffd7a8;
+            animation-delay: 4s;
+          }
+
+          .map-container {
+            position: relative;
+          }
+
+          .map-container :global(.mapboxgl-ctrl button) {
+            background: #f7f9ff;
+          }
+
+          .map-container :global(.mapboxgl-ctrl button span) {
+            filter: invert(20%);
+          }
+
+          .map-container :global(.bus-info-popup .mapboxgl-popup-content) {
+            border-radius: 14px;
+            border: 1px solid rgba(36, 91, 176, 0.18);
+            background: #ffffff;
+            box-shadow: 0 14px 30px rgba(36, 91, 176, 0.16);
+            padding: 0;
+          }
+
+          .map-container :global(.bus-info-popup .mapboxgl-popup-tip) {
+            border-top-color: #ffffff;
+            border-bottom-color: #ffffff;
+          }
+
+          .map-container :global(.bus-popup-card) {
+            min-width: 190px;
+            padding: 12px 14px;
+            color: #173330;
+          }
+
+          .map-container :global(.bus-popup-title) {
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #245bb0;
+            margin-bottom: 8px;
+          }
+
+          .map-container :global(.bus-popup-line) {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            font-size: 13px;
+            margin-top: 4px;
+          }
+
+          .map-container :global(.bus-popup-line strong) {
+            font-weight: 700;
+          }
+
+          @keyframes mesh-float {
+            0% {
+              transform: scale(1) translate3d(0, 0, 0);
+            }
+            100% {
+              transform: scale(1.08) translate3d(1.5%, -1%, 0);
+            }
+          }
+
+          @keyframes orb-drift {
+            0%,
+            100% {
+              transform: translate3d(0, 0, 0) scale(1);
+            }
+            50% {
+              transform: translate3d(1rem, -0.7rem, 0) scale(1.07);
+            }
+          }
+        `}</style>
+      </div>
       <GpsPermissionDialog
         open={gpsDialogOpen}
         onOpenChange={setGpsDialogOpen}
