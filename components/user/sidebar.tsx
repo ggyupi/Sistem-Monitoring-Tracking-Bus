@@ -64,7 +64,7 @@ export function UserSidebar({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-primary leading-none">
-              BusControl
+              BusWayCAMPUS
             </h1>
             <p className="text-xs text-muted-foreground mt-1">
               IoT Monitoring System
@@ -101,7 +101,7 @@ export function UserSidebar({
         <button
           type="button"
           onClick={handleSignOut}
-          className="flex w-full items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition"
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium text-red-500 bg-white hover:bg-red-500 hover:text-white transition"
         >
           <LogOut className="w-5 h-5 shrink-0" />
           Logout
