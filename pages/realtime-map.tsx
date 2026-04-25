@@ -1,32 +1,20 @@
+import type { GetServerSideProps, InferGetServerSidePropsType } from "next";
 import { Manrope, Sora } from "next/font/google";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { BusStatusCard } from "@/components/realtime-map/BusStatusCard";
-import { FleetSummaryCard } from "@/components/realtime-map/FleetSummaryCard";
+import { FloatingMapControls } from "@/components/realtime-map/FloatingMapControls";
 import { GpsPermissionDialog } from "@/components/realtime-map/GpsPermissionDialog";
-import { MapHeader } from "@/components/realtime-map/MapHeader";
-import { MapToolbar } from "@/components/realtime-map/MapToolbar";
-import { RouteInfoCard } from "@/components/realtime-map/RouteInfoCard";
+import { useRealtimeMapRenderer } from "@/lib/hooks/use-realtime-map-renderer";
+import { prisma } from "@/lib/prisma";
+import type { Coordinate } from "@/lib/realtime-bus-feed";
 import {
-  type BusTelemetry,
-  type Coordinate,
-  createRealtimeBusFeed,
-} from "@/lib/realtime-bus-feed";
+  type MapStyleKey,
+  type RealtimeMapRoute,
+  type RealtimeMapStation,
+} from "@/lib/realtime-map-types";
+import { parseLineStringCoordinatesFromGeoJson } from "@/lib/realtime-map-utils";
 
 import styles from "./realtime-map.module.css";
-
-const MAP_STYLE_URLS = {
-  light: "mapbox://styles/mapbox/light-v11",
-  streets: "mapbox://styles/mapbox/streets-v12",
-  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
-} as const;
-
-type MapStyleKey = keyof typeof MAP_STYLE_URLS;
-
-type DistanceLookup = {
-  cumulative: number[];
-  total: number;
-};
 
 const sora = Sora({
   subsets: ["latin"],
@@ -38,252 +26,67 @@ const manrope = Manrope({
   variable: "--font-body",
 });
 
-const routeCoordinatesSeed: Coordinate[] = [
-  [112.6063, -7.9527],
-  [112.6102, -7.9525],
-  [112.6137, -7.9518],
-  [112.6148, -7.9484],
-  [112.6152, -7.9469],
-  [112.6151, -7.9506],
-  [112.6149, -7.9532],
-  [112.6215, -7.9574],
-  [112.6251, -7.9596],
-];
+type RealtimeMapPageProps = {
+  routes: RealtimeMapRoute[];
+};
 
-const stopNames = [
-  "Halte UIN Malang",
-  "Halte Dinoyo",
-  "Halte Soekarno Hatta",
-  "Halte Veteran UB",
-  "Halte Polinema",
-  "Halte UM",
-  "Halte Tlogomas",
-  "Halte Landungsari",
-  "Halte Sumbersari",
-  "Halte Gajayana",
-];
-
-function buildBusPopupHtml(
-  busId: string,
-  passengerCount: number,
-  speedKph: number,
-): string {
-  return (
-    `<div class="bus-popup-card">` +
-    `<div class="bus-popup-title">${busId}</div>` +
-    `<div class="bus-popup-line"><span>Penumpang</span><strong>${passengerCount}</strong></div>` +
-    `<div class="bus-popup-line"><span>Kecepatan</span><strong>${speedKph.toFixed(1)} km/j</strong></div>` +
-    `</div>`
-  );
-}
-
-function upsertUserLocationSource(
-  map: import("mapbox-gl").Map,
-  coords: Coordinate,
-) {
-  const sourceId = "user-location";
-  const outerLayerId = "user-location-outer";
-  const innerLayerId = "user-location-inner";
-  const data = {
-    type: "FeatureCollection" as const,
-    features: [
-      {
-        type: "Feature" as const,
-        properties: {},
-        geometry: {
-          type: "Point" as const,
-          coordinates: coords,
-        },
-      },
-    ],
-  };
-
-  const existingSource = map.getSource(sourceId) as
-    | import("mapbox-gl").GeoJSONSource
-    | undefined;
-
-  if (existingSource) {
-    existingSource.setData(data);
-    return;
-  }
-
-  map.addSource(sourceId, {
-    type: "geojson",
-    data,
-  });
-
-  map.addLayer({
-    id: outerLayerId,
-    type: "circle",
-    source: sourceId,
-    paint: {
-      "circle-radius": 15,
-      "circle-color": "#245bb0",
-      "circle-opacity": 0.22,
-    },
-  });
-
-  map.addLayer({
-    id: innerLayerId,
-    type: "circle",
-    source: sourceId,
-    paint: {
-      "circle-radius": 7,
-      "circle-color": "#245bb0",
-      "circle-stroke-color": "#ffffff",
-      "circle-stroke-width": 3,
-    },
-  });
-}
-
-function toRadians(value: number): number {
-  return (value * Math.PI) / 180;
-}
-
-function distanceInMeters(a: Coordinate, b: Coordinate): number {
-  const earthRadius = 6371000;
-  const dLat = toRadians(b[1] - a[1]);
-  const dLng = toRadians(b[0] - a[0]);
-
-  const lat1 = toRadians(a[1]);
-  const lat2 = toRadians(b[1]);
-
-  const h =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-
-  return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
-
-function buildDistanceLookup(coords: Coordinate[]): DistanceLookup {
-  const cumulative: number[] = [0];
-
-  for (let i = 1; i < coords.length; i += 1) {
-    cumulative[i] =
-      cumulative[i - 1] + distanceInMeters(coords[i - 1], coords[i]);
-  }
-
-  return {
-    cumulative,
-    total: cumulative[cumulative.length - 1] ?? 0,
-  };
-}
-
-function pointAtDistance(
-  coords: Coordinate[],
-  cumulative: number[],
-  distance: number,
-): Coordinate {
-  if (coords.length <= 1 || cumulative.length <= 1) {
-    return coords[0] ?? [0, 0];
-  }
-
-  if (distance <= 0) {
-    return coords[0];
-  }
-
-  const routeLength = cumulative[cumulative.length - 1] ?? 0;
-  if (distance >= routeLength) {
-    return coords[coords.length - 1];
-  }
-
-  let segmentIndex = 1;
-  while (
-    segmentIndex < cumulative.length &&
-    cumulative[segmentIndex] < distance
-  ) {
-    segmentIndex += 1;
-  }
-
-  const prevDistance = cumulative[segmentIndex - 1];
-  const nextDistance = cumulative[segmentIndex];
-  const range = Math.max(nextDistance - prevDistance, 1);
-  const ratio = (distance - prevDistance) / range;
-
-  const [lngA, latA] = coords[segmentIndex - 1];
-  const [lngB, latB] = coords[segmentIndex];
-
-  return [lngA + (lngB - lngA) * ratio, latA + (latB - latA) * ratio];
-}
-
-function buildStopPoints(coords: Coordinate[], lookup: DistanceLookup) {
-  if (!coords.length) {
-    return [];
-  }
-
-  return stopNames.map((name, index) => {
-    const progress = index / Math.max(stopNames.length - 1, 1);
-    const point = pointAtDistance(
-      coords,
-      lookup.cumulative,
-      lookup.total * progress,
-    );
-    return { name, coords: point };
-  });
-}
-
-async function fetchRoadRoute(token: string): Promise<Coordinate[]> {
-  const coordinatesString = routeCoordinatesSeed
-    .map(([lng, lat]) => `${lng},${lat}`)
-    .join(";");
-
-  const endpoint =
-    `https://api.mapbox.com/directions/v5/mapbox/driving/${coordinatesString}` +
-    `?geometries=geojson&overview=full&steps=false&access_token=${token}`;
-
-  try {
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      return routeCoordinatesSeed;
-    }
-
-    const data = (await response.json()) as {
-      routes?: Array<{
-        geometry?: {
-          coordinates?: number[][];
-        };
-      }>;
-    };
-
-    const points = data.routes?.[0]?.geometry?.coordinates;
-    if (!Array.isArray(points) || points.length < 2) {
-      return routeCoordinatesSeed;
-    }
-
-    const normalized = points
-      .filter((point) => Array.isArray(point) && point.length >= 2)
-      .map((point) => [Number(point[0]), Number(point[1])] as Coordinate)
-      .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
-
-    return normalized.length >= 2 ? normalized : routeCoordinatesSeed;
-  } catch {
-    return routeCoordinatesSeed;
-  }
-}
-
-export default function RealtimeMapPage() {
+export default function RealtimeMapPage({
+  routes,
+}: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<import("mapbox-gl").Map | null>(null);
-  const activeBusIdRef = useRef<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const userLocationRef = useRef<Coordinate | null>(null);
-  const [currentStop, setCurrentStop] = useState("Shelter Asrama");
-  const [eta, setEta] = useState(3);
-  const [speedKph, setSpeedKph] = useState(0);
-  const [passengerCount, setPassengerCount] = useState(0);
   const [gpsDialogOpen, setGpsDialogOpen] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
-  const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
   const [tokenMissing, setTokenMissing] = useState(false);
-  const [busLabel, setBusLabel] = useState("Bus A12");
-  const [activeBusId, setActiveBusId] = useState<string | null>(null);
-  const [activeBusCount, setActiveBusCount] = useState(0);
   const [mapStyle, setMapStyle] = useState<MapStyleKey>("light");
   const [isTiltedView, setIsTiltedView] = useState(true);
+  const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
   const feedMode =
     process.env.NEXT_PUBLIC_BUS_FEED_MODE === "mqtt" ? "mqtt" : "mock";
 
+  const activeRoute = routes[0] ?? null;
+  const activeRouteCoordinates = activeRoute?.coordinates ?? [];
+  const activeStopNames = useMemo(
+    () => activeRoute?.stations.map((station) => station.name) ?? [],
+    [activeRoute],
+  );
+  const allStations = useMemo(() => {
+    const deduped = new Map<string, RealtimeMapStation>();
+
+    routes.forEach((route) => {
+      route.stations.forEach((station) => {
+        if (!deduped.has(station.id)) {
+          deduped.set(station.id, station);
+        }
+      });
+    });
+
+    return Array.from(deduped.values());
+  }, [routes]);
+  const hasMapData =
+    routes.some((route) => route.coordinates.length >= 2) ||
+    allStations.length > 0;
+
   const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
+
+  const { mapInstanceRef, upsertUserLocationSource } = useRealtimeMapRenderer({
+    mapRef,
+    routes,
+    activeRouteId: activeRoute?.id ?? null,
+    activeRouteCoordinates,
+    activeStopNames,
+    allStations,
+    hasMapData,
+    mapStyle,
+    isTiltedView,
+    token,
+    feedMode,
+    userLocationRef,
+    onTokenMissingChange: setTokenMissing,
+  });
 
   const handleRequestGpsAccess = () => {
     if (!navigator.geolocation) {
@@ -302,7 +105,6 @@ export default function RealtimeMapPage() {
         ];
 
         userLocationRef.current = coords;
-        setUserLocation(coords);
         setGpsLoading(false);
         setGpsDialogOpen(false);
 
@@ -340,435 +142,91 @@ export default function RealtimeMapPage() {
   };
 
   useEffect(() => {
-    if (!mapRef.current) {
-      return;
-    }
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!isViewMenuOpen) {
+        return;
+      }
 
-    if (!token) {
-      setTokenMissing(true);
-      return;
-    }
-    setTokenMissing(false);
+      const target = event.target as Node;
+      const clickedMenu = menuRef.current?.contains(target) ?? false;
+      const clickedTrigger = menuTriggerRef.current?.contains(target) ?? false;
 
-    let map: import("mapbox-gl").Map | null = null;
-    let stopFeed: (() => void) | null = null;
-    let popup: import("mapbox-gl").Popup | null = null;
-    let lastCameraFollowAt = 0;
-    let mounted = true;
-
-    const initMap = async () => {
-      const mapboxgl = (await import("mapbox-gl")).default;
-      mapboxgl.accessToken = token;
-
-      const roadRoute = await fetchRoadRoute(token);
-      const lookup = buildDistanceLookup(roadRoute);
-      const stopPoints = buildStopPoints(roadRoute, lookup);
-      const centerPoint =
-        roadRoute[Math.floor(roadRoute.length / 2)] ?? roadRoute[0];
-
-      map = new mapboxgl.Map({
-        container: mapRef.current as HTMLDivElement,
-        style: MAP_STYLE_URLS[mapStyle],
-        center: centerPoint,
-        zoom: 14.8,
-        pitch: isTiltedView ? 52 : 0,
-        bearing: isTiltedView ? -22 : 0,
-        antialias: true,
-      });
-      mapInstanceRef.current = map;
-
-      map.addControl(
-        new mapboxgl.NavigationControl({ showCompass: true }),
-        "top-right",
-      );
-
-      map.on("load", () => {
-        if (!map || !mounted) {
-          return;
-        }
-
-        map.addSource("bus-route", {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "LineString",
-              coordinates: roadRoute,
-            },
-          },
-        });
-
-        map.addSource("stops", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: stopPoints.map((stop) => ({
-              type: "Feature",
-              properties: {
-                name: stop.name,
-              },
-              geometry: {
-                type: "Point",
-                coordinates: stop.coords,
-              },
-            })),
-          },
-        });
-
-        map.addSource("bus-point", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: [],
-          },
-        });
-
-        const bounds = new mapboxgl.LngLatBounds();
-        roadRoute.forEach(([lng, lat]) => {
-          bounds.extend([lng, lat]);
-        });
-        map.fitBounds(bounds, {
-          padding: 56,
-          duration: 800,
-          maxZoom: 16.2,
-          pitch: isTiltedView ? 52 : 0,
-          bearing: isTiltedView ? -22 : 0,
-        });
-
-        if (userLocationRef.current) {
-          upsertUserLocationSource(map, userLocationRef.current);
-        }
-
-        map.addLayer({
-          id: "bus-route-glow",
-          type: "line",
-          source: "bus-route",
-          paint: {
-            "line-color": "#e86f3f",
-            "line-width": 14,
-            "line-opacity": 0.25,
-          },
-        });
-
-        map.addLayer({
-          id: "bus-route-line",
-          type: "line",
-          source: "bus-route",
-          paint: {
-            "line-color": "#ffe39f",
-            "line-width": 5,
-            "line-opacity": 0.95,
-            "line-dasharray": [1.6, 1.2],
-          },
-        });
-
-        map.addLayer({
-          id: "stops-circle",
-          type: "circle",
-          source: "stops",
-          paint: {
-            "circle-radius": 7,
-            "circle-color": "#62f4da",
-            "circle-stroke-color": "#102b28",
-            "circle-stroke-width": 2,
-          },
-        });
-
-        map.addLayer({
-          id: "stops-label",
-          type: "symbol",
-          source: "stops",
-          layout: {
-            "text-field": ["get", "name"],
-            "text-size": 12,
-            "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-            "text-offset": [0, 1.5],
-          },
-          paint: {
-            "text-color": "#173330",
-            "text-halo-color": "#fff9ed",
-            "text-halo-width": 1,
-          },
-        });
-
-        map.addLayer({
-          id: "bus-points",
-          type: "circle",
-          source: "bus-point",
-          paint: {
-            "circle-radius": 10,
-            "circle-color": "#e86f3f",
-            "circle-stroke-width": 3,
-            "circle-stroke-color": "#ffe39f",
-          },
-        });
-
-        map.addLayer({
-          id: "bus-labels",
-          type: "symbol",
-          source: "bus-point",
-          layout: {
-            "text-field": ["get", "busId"],
-            "text-size": 11,
-            "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-            "text-offset": [0, 1.6],
-          },
-          paint: {
-            "text-color": "#173330",
-            "text-halo-color": "#ffffff",
-            "text-halo-width": 1,
-          },
-        });
-
-        map.on("mouseenter", "bus-points", () => {
-          if (!map) {
-            return;
-          }
-          map.getCanvas().style.cursor = "pointer";
-        });
-
-        map.on("mouseleave", "bus-points", () => {
-          if (!map) {
-            return;
-          }
-          map.getCanvas().style.cursor = "";
-        });
-
-        map.on("click", "bus-points", (event) => {
-          if (!map) {
-            return;
-          }
-
-          const feature = event.features?.[0];
-          if (!feature || feature.geometry.type !== "Point") {
-            return;
-          }
-
-          const coordinates = [...feature.geometry.coordinates] as [
-            number,
-            number,
-          ];
-          const props = feature.properties ?? {};
-          const selectedBusId = String(props.busId ?? "-");
-          const selectedStop = String(props.nearestStop ?? "-");
-          const selectedEta = Number(props.etaMinutes ?? 0);
-          const selectedSpeed = Number(props.speedKph ?? 0);
-          const selectedPassenger = Number(props.passengerCount ?? 0);
-
-          activeBusIdRef.current = selectedBusId;
-          setActiveBusId(selectedBusId);
-          setBusLabel(selectedBusId);
-          setCurrentStop(selectedStop);
-          setEta(Number.isFinite(selectedEta) ? selectedEta : 0);
-          setSpeedKph(Number.isFinite(selectedSpeed) ? selectedSpeed : 0);
-          setPassengerCount(
-            Number.isFinite(selectedPassenger) ? selectedPassenger : 0,
-          );
-
-          popup?.remove();
-          popup = new mapboxgl.Popup({
-            closeButton: false,
-            closeOnMove: false,
-            offset: 16,
-            className: "bus-info-popup",
-          })
-            .setLngLat(coordinates)
-            .setHTML(
-              buildBusPopupHtml(
-                selectedBusId,
-                selectedPassenger,
-                selectedSpeed,
-              ),
-            )
-            .addTo(map);
-        });
-
-        const feed = createRealtimeBusFeed({
-          mode: feedMode,
-          mqttBrokerUrl: process.env.NEXT_PUBLIC_MQTT_BROKER_URL,
-          mqttTopic: process.env.NEXT_PUBLIC_MQTT_TOPIC,
-        });
-
-        const busesById = new Map<string, BusTelemetry>();
-
-        stopFeed = feed.connect(
-          (payload) => {
-            if (!map || !mounted) {
-              return;
-            }
-
-            busesById.set(payload.busId, payload);
-            setActiveBusCount(busesById.size);
-
-            if (!activeBusIdRef.current) {
-              activeBusIdRef.current = payload.busId;
-              setActiveBusId(payload.busId);
-            }
-
-            const shouldSyncPanel =
-              (activeBusIdRef.current ?? payload.busId) === payload.busId;
-            if (shouldSyncPanel) {
-              setBusLabel(payload.busId);
-              setCurrentStop(payload.nearestStop);
-              setEta(payload.etaMinutes);
-              setSpeedKph(payload.speedKph);
-              setPassengerCount(payload.passengerCount);
-            }
-
-            const selectedBusId = activeBusIdRef.current;
-            const selectedBus = selectedBusId
-              ? busesById.get(selectedBusId)
-              : undefined;
-
-            if (popup && selectedBus) {
-              popup
-                .setLngLat(selectedBus.position)
-                .setHTML(
-                  buildBusPopupHtml(
-                    selectedBus.busId,
-                    selectedBus.passengerCount,
-                    selectedBus.speedKph,
-                  ),
-                );
-
-              const now = Date.now();
-              if (now - lastCameraFollowAt > 450) {
-                map.easeTo({
-                  center: selectedBus.position,
-                  duration: 650,
-                  essential: true,
-                });
-                lastCameraFollowAt = now;
-              }
-            }
-
-            const features = Array.from(busesById.values()).map((bus) => ({
-              type: "Feature" as const,
-              properties: {
-                busId: bus.busId,
-                nearestStop: bus.nearestStop,
-                etaMinutes: bus.etaMinutes,
-                speedKph: bus.speedKph,
-                passengerCount: bus.passengerCount,
-              },
-              geometry: {
-                type: "Point" as const,
-                coordinates: bus.position,
-              },
-            }));
-
-            const source = map.getSource("bus-point") as
-              | import("mapbox-gl").GeoJSONSource
-              | undefined;
-
-            source?.setData({
-              type: "FeatureCollection",
-              features,
-            });
-          },
-          {
-            routeCoordinates: roadRoute,
-            stopNames,
-            loopDurationSeconds: 80,
-            busCount: 2,
-          },
-        );
-      });
+      if (!clickedMenu && !clickedTrigger) {
+        setIsViewMenuOpen(false);
+      }
     };
 
-    initMap();
+    document.addEventListener("mousedown", handleOutsideClick);
 
     return () => {
-      mounted = false;
-      stopFeed?.();
-      popup?.remove();
-      map?.remove();
-      mapInstanceRef.current = null;
+      document.removeEventListener("mousedown", handleOutsideClick);
     };
-  }, [feedMode, isTiltedView, mapStyle, token]);
-
-  const statusLabel = useMemo(() => {
-    if (eta <= 2) {
-      return "Hampir tiba";
-    }
-    if (eta <= 5) {
-      return "On schedule";
-    }
-    return "Perjalanan normal";
-  }, [eta]);
+  }, [isViewMenuOpen]);
 
   return (
     <div
-      className={`${sora.variable} ${manrope.variable} min-h-screen bg-[#f7f9ff] text-[#173330]`}
+      className={`${sora.variable} ${manrope.variable} h-screen w-screen overflow-hidden bg-[#f7f9ff] text-[#173330]`}
     >
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className={`${styles.auroraMesh} absolute inset-0`} />
+      <div className="absolute inset-0">
         <div
-          className={`${styles.gradientOrb} ${styles.orbA} absolute -top-20 left-1/4 h-72 w-72 rounded-full`}
-        />
-        <div
-          className={`${styles.gradientOrb} ${styles.orbB} absolute bottom-0 -right-16 h-80 w-80 rounded-full`}
-        />
-        <div
-          className={`${styles.gradientOrb} ${styles.orbC} absolute top-1/3 -left-20 h-64 w-64 rounded-full`}
+          ref={mapRef}
+          className={`${styles.mapContainer} h-screen w-screen`}
         />
       </div>
 
-      <main className="relative mx-auto w-full max-w-7xl px-5 py-8 md:px-10 lg:px-16">
-        <MapHeader />
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <FloatingMapControls
+          isViewMenuOpen={isViewMenuOpen}
+          isTiltedView={isTiltedView}
+          mapStyle={mapStyle}
+          menuRef={menuRef}
+          menuTriggerRef={menuTriggerRef}
+          onToggleViewMenu={() => setIsViewMenuOpen((prev) => !prev)}
+          onToggleTiltedView={() => setIsTiltedView((prev) => !prev)}
+          onSelectMapStyle={setMapStyle}
+          onOpenGpsDialog={() => {
+            setIsViewMenuOpen(false);
+            setGpsDialogOpen(true);
+          }}
+        />
 
-        <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <article className="overflow-hidden rounded-[2rem] border border-[#245bb0]/16 bg-white/85 shadow-[0_18px_44px_rgba(36,91,176,0.12)]">
-            <div className="border-b border-[#245bb0]/10 bg-linear-to-r from-[#eef5ff]/60 to-[#ebfdfa]/50 px-5 py-4 text-sm text-[#173330]/70">
-              Tracking rute kampus utama • Update simulasi setiap frame
-            </div>
-            <MapToolbar
-              isTiltedView={isTiltedView}
-              mapStyle={mapStyle}
-              onOpenGpsDialog={() => setGpsDialogOpen(true)}
-              onToggleTiltedView={() => setIsTiltedView((prev) => !prev)}
-              onSetMapStyle={setMapStyle}
-            />
-            {tokenMissing ? (
-              <div className="flex min-h-125 flex-col items-center justify-center gap-4 px-6 text-center">
-                <p
-                  style={{ fontFamily: "var(--font-display)" }}
-                  className="text-3xl font-semibold text-[#e86f3f]"
-                >
-                  Token Mapbox Belum Diatur
-                </p>
-                <p className="max-w-lg text-sm leading-7 text-[#173330]/75">
-                  Tambahkan NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN di file .env.local
-                  agar peta realtime dapat ditampilkan.
-                </p>
-              </div>
-            ) : (
-              <div
-                ref={mapRef}
-                className={`${styles.mapContainer} min-h-125 w-full`}
-              />
-            )}
-          </article>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 md:p-6">
+          <div className="mx-auto max-w-max rounded-md border border-slate-200/80 bg-white/88 px-2 py-1 text-xs text-slate-600 shadow-sm backdrop-blur-sm">
+            Tap ikon bus untuk detail
+          </div>
+        </div>
 
-          <aside className="space-y-4">
-            <BusStatusCard
-              busLabel={busLabel}
-              currentStop={currentStop}
-              eta={eta}
-              speedKph={speedKph}
-              passengerCount={passengerCount}
-              userLocation={userLocation}
-              statusLabel={statusLabel}
-            />
-            <RouteInfoCard stopNames={stopNames} />
-            <FleetSummaryCard
-              activeBusCount={activeBusCount}
-              feedMode={feedMode}
-            />
-          </aside>
-        </section>
-      </main>
+        {tokenMissing ? (
+          <div className="pointer-events-auto absolute inset-x-4 top-1/2 z-30 -translate-y-1/2 rounded-xl border border-slate-200/90 bg-white/95 p-6 text-center shadow-sm backdrop-blur-sm md:inset-x-auto md:left-1/2 md:w-136 md:-translate-x-1/2">
+            <p
+              style={{ fontFamily: "var(--font-display)" }}
+              className="text-3xl font-semibold text-[#e86f3f]"
+            >
+              Token Mapbox Belum Diatur
+            </p>
+            <p className="mt-3 text-sm leading-7 text-[#173330]/75">
+              Tambahkan NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN di file .env.local agar
+              peta realtime dapat ditampilkan.
+            </p>
+          </div>
+        ) : null}
+
+        {!tokenMissing && !hasMapData ? (
+          <div className="pointer-events-auto absolute inset-x-4 top-1/2 z-30 -translate-y-1/2 rounded-xl border border-slate-200/90 bg-white/95 p-6 text-center shadow-sm backdrop-blur-sm md:inset-x-auto md:left-1/2 md:w-136 md:-translate-x-1/2">
+            <p
+              style={{ fontFamily: "var(--font-display)" }}
+              className="text-3xl font-semibold text-[#e86f3f]"
+            >
+              Data Rute Belum Tersedia
+            </p>
+            <p className="mt-3 text-sm leading-7 text-[#173330]/75">
+              Tambahkan data route dengan GeoJSON LineString dan station di
+              database agar peta realtime dapat ditampilkan.
+            </p>
+          </div>
+        ) : null}
+      </div>
+
       <GpsPermissionDialog
         open={gpsDialogOpen}
         onOpenChange={setGpsDialogOpen}
@@ -779,3 +237,63 @@ export default function RealtimeMapPage() {
     </div>
   );
 }
+
+export const getServerSideProps: GetServerSideProps<
+  RealtimeMapPageProps
+> = async (context) => {
+  const routeIdQuery = context.query.routeId;
+  const routeId =
+    typeof routeIdQuery === "string" && routeIdQuery.trim().length > 0
+      ? routeIdQuery
+      : null;
+
+  const routeRecords = await prisma.route.findMany({
+    where: routeId ? { id: routeId } : undefined,
+    orderBy: {
+      routeName: "asc",
+    },
+    include: {
+      stations: {
+        include: {
+          station: {
+            select: {
+              id: true,
+              name: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
+        },
+        orderBy: {
+          order: "asc",
+        },
+      },
+    },
+  });
+
+  const routes: RealtimeMapRoute[] = routeRecords.map((route) => {
+    const coordinates = parseLineStringCoordinatesFromGeoJson(
+      route.pathGeoJSON,
+    );
+    const relationStations = route.stations.map((item) => ({
+      id: item.station.id,
+      name: item.station.name,
+      latitude: item.station.latitude,
+      longitude: item.station.longitude,
+      order: item.order,
+    }));
+
+    return {
+      id: route.id,
+      routeName: route.routeName,
+      coordinates,
+      stations: relationStations,
+    };
+  });
+
+  return {
+    props: {
+      routes,
+    },
+  };
+};
