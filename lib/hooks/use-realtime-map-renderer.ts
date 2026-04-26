@@ -14,6 +14,95 @@ import {
 } from "@/lib/realtime-map-types";
 import { buildBusPopupHtml, pickRouteColor } from "@/lib/realtime-map-utils";
 
+function buildStationMarkerSvgDataUrl() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+      <defs>
+        <filter id="station-shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0f3d36" flood-opacity="0.28" />
+        </filter>
+      </defs>
+      <g filter="url(#station-shadow)">
+        <path d="M26 4C17.72 4 11 10.72 11 19c0 10.4 12.2 23.7 14.1 25.72a1.2 1.2 0 0 0 1.8 0C28.8 42.7 41 29.4 41 19 41 10.72 34.28 4 26 4z" fill="#22c55e" stroke="#0f5132" stroke-width="2" />
+        <circle cx="26" cy="19" r="7" fill="#f0fdf4" stroke="#14532d" stroke-width="2" />
+      </g>
+    </svg>
+  `.trim();
+
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function buildBusMarkerSvgDataUrl() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="58" height="58" viewBox="0 0 58 58">
+      <defs>
+        <filter id="bus-shadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#7c2d12" flood-opacity="0.3" />
+        </filter>
+      </defs>
+      <g transform="translate(3 8)" filter="url(#bus-shadow)">
+        <rect x="4" y="4" width="44" height="30" rx="8" fill="#f97316" stroke="#7c2d12" stroke-width="2" />
+        <rect x="10" y="10" width="14" height="8" rx="2" fill="#fff7ed" />
+        <rect x="28" y="10" width="14" height="8" rx="2" fill="#fff7ed" />
+        <rect x="20" y="22" width="12" height="6" rx="2" fill="#ffedd5" />
+        <circle cx="14" cy="36" r="5" fill="#111827" />
+        <circle cx="38" cy="36" r="5" fill="#111827" />
+        <circle cx="14" cy="36" r="2" fill="#e5e7eb" />
+        <circle cx="38" cy="36" r="2" fill="#e5e7eb" />
+      </g>
+    </svg>
+  `.trim();
+
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Gagal memuat marker icon"));
+    image.src = dataUrl;
+  });
+}
+
+async function ensureMapImage({
+  map,
+  imageId,
+  markerSvgDataUrl,
+  iconNode,
+}: {
+  map: import("mapbox-gl").Map;
+  imageId: string;
+  markerSvgDataUrl?: string;
+  iconNode?: unknown;
+}) {
+  let resolvedMarkerSvgDataUrl = markerSvgDataUrl;
+
+  if (!resolvedMarkerSvgDataUrl) {
+    if (imageId === "station-lucide-icon" || iconNode === mapPinIconNode) {
+      resolvedMarkerSvgDataUrl = buildStationMarkerSvgDataUrl();
+    } else if (imageId === "bus-lucide-icon" || iconNode === busFrontIconNode) {
+      resolvedMarkerSvgDataUrl = buildBusMarkerSvgDataUrl();
+    }
+  }
+
+  if (!resolvedMarkerSvgDataUrl) {
+    return;
+  }
+
+  if (map.hasImage(imageId)) {
+    return;
+  }
+
+  const image = await loadImageFromDataUrl(resolvedMarkerSvgDataUrl);
+  if (!map.hasImage(imageId)) {
+    map.addImage(imageId, image, { pixelRatio: 2 });
+  }
+}
+
+const mapPinIconNode = Symbol("legacy-map-pin-icon");
+const busFrontIconNode = Symbol("legacy-bus-front-icon");
+
 type UseRealtimeMapRendererParams = {
   mapRef: RefObject<HTMLDivElement | null>;
   routes: RealtimeMapRoute[];
@@ -188,10 +277,22 @@ export function useRealtimeMapRenderer({
         "top-right",
       );
 
-      map.on("load", () => {
+      map.on("load", async () => {
         if (!map || !mounted) {
           return;
         }
+
+        await ensureMapImage({
+          map,
+          imageId: "station-lucide-icon",
+          markerSvgDataUrl: buildStationMarkerSvgDataUrl(),
+        });
+
+        await ensureMapImage({
+          map,
+          imageId: "bus-lucide-icon",
+          markerSvgDataUrl: buildBusMarkerSvgDataUrl(),
+        });
 
         map.addSource("bus-route", {
           type: "geojson",
@@ -276,14 +377,15 @@ export function useRealtimeMapRenderer({
         });
 
         map.addLayer({
-          id: "stops-circle",
-          type: "circle",
+          id: "stops-icon",
+          type: "symbol",
           source: "stops",
-          paint: {
-            "circle-radius": 7,
-            "circle-color": "#62f4da",
-            "circle-stroke-color": "#102b28",
-            "circle-stroke-width": 2,
+          layout: {
+            "icon-image": "station-lucide-icon",
+            "icon-size": 0.48,
+            "icon-anchor": "center",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
           },
         });
 
@@ -306,13 +408,14 @@ export function useRealtimeMapRenderer({
 
         map.addLayer({
           id: "bus-points",
-          type: "circle",
+          type: "symbol",
           source: "bus-point",
-          paint: {
-            "circle-radius": 10,
-            "circle-color": "#e86f3f",
-            "circle-stroke-width": 3,
-            "circle-stroke-color": "#ffe39f",
+          layout: {
+            "icon-image": "bus-lucide-icon",
+            "icon-size": 0.52,
+            "icon-anchor": "center",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
           },
         });
 

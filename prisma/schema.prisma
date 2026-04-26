@@ -15,12 +15,19 @@ datasource db {
 enum UserRole {
   ADMIN
   USER
+  DRIVER
 }
 
 enum TransactionType {
   IN
   OUT
   PENALTY
+}
+
+enum DeviceStatus {
+  ACTIVE
+  INACTIVE
+  RETIRED
 }
 
 model User {
@@ -100,11 +107,46 @@ model Bus {
   routeId String?
   route   Route?  @relation(fields: [routeId], references: [id])
 
-  passengers   Card[]
-  locations    BusLocation[]
-  transactions Transaction[]
+  passengers       Card[]
+  locations        BusLocation[]
+  transactions     Transaction[]
+  currentIotDevice IotDevice?            @relation("CurrentBusDevice")
+  iotAssignments   BusDeviceAssignment[]
 
   @@map("bus")
+}
+
+model IotDevice {
+  id            String       @id @default(cuid())
+  serialNumber  String       @unique
+  deviceKeyHash String       @unique
+  status        DeviceStatus @default(ACTIVE)
+  firmwareVer   String?
+  lastSeenAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  currentBusId String? @unique
+  currentBus   Bus?    @relation("CurrentBusDevice", fields: [currentBusId], references: [id])
+
+  assignments BusDeviceAssignment[]
+
+  @@map("iot_device")
+}
+
+model BusDeviceAssignment {
+  id           String    @id @default(cuid())
+  busId        String
+  iotDeviceId  String
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+
+  bus       Bus       @relation(fields: [busId], references: [id])
+  iotDevice IotDevice @relation(fields: [iotDeviceId], references: [id])
+
+  @@index([busId])
+  @@index([iotDeviceId])
+  @@map("bus_device_assignment")
 }
 
 model Card {

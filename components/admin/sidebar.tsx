@@ -2,14 +2,14 @@
 
 import {
   BusFront,
+  Cpu,
   CreditCard,
   LayoutDashboard,
   LogOut,
   MapPinned,
-  Route,
   ReceiptText,
+  Route,
   Settings,
-  Shield,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -21,7 +21,7 @@ import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 // Ikon yang kita gunakan untuk Sidebar dan Profile
-import { GripVertical, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 
 /** * Fungsi helper 'cn' (biasanya ada di folder lib/utils.ts)
  * Jika kamu belum punya, kamu bisa buat sendiri seperti ini:
@@ -36,12 +36,12 @@ type SidebarItem = {
 const defaultItems: SidebarItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Buses", href: "/admin/buses", icon: BusFront },
+  { label: "IoT Devices", href: "/admin/iot-devices", icon: Cpu },
   { label: "Routes", href: "/admin/routes", icon: Route },
   { label: "Stations", href: "/admin/stations", icon: MapPinned },
   { label: "Cards", href: "/admin/cards", icon: CreditCard },
   { label: "Transactions", href: "/admin/transactions", icon: ReceiptText },
   { label: "Users", href: "/admin/users", icon: Users },
-  { label: "Roles", href: "/admin/roles", icon: Shield },
   { label: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
@@ -111,7 +111,10 @@ export function AdminSidebar({
       )}
       style={{ width: `${width}px` }}
     >
-      <div className="absolute right-0 top-0 h-full w-2 cursor-col-resize bg-transparent hover:bg-sidebar-accent/10" onPointerDown={handlePointerDown} />
+      <div
+        className="absolute right-0 top-0 h-full w-2 cursor-col-resize bg-transparent hover:bg-sidebar-accent/10"
+        onPointerDown={handlePointerDown}
+      />
       <div className="mb-6 px-4 pt-6">
         <div className="flex items-center justify-between">
           {/* TITLE (TIDAK HILANG, CUMA FADE) */}
@@ -178,7 +181,9 @@ export function AdminSidebar({
               <span
                 className={cn(
                   "transition-all duration-200 origin-left",
-                  isCollapsed ? "scale-0 opacity-0 w-0" : "scale-100 opacity-100",
+                  isCollapsed
+                    ? "scale-0 opacity-0 w-0"
+                    : "scale-100 opacity-100",
                 )}
               >
                 {item.label}

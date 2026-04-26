@@ -21,7 +21,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         onWidthChange={setSidebarWidth}
       />
 
-      <main className="flex-1 transition-all duration-200 md:ml-[var(--sidebar-width)]">
+      <main className="flex-1 transition-all duration-200 md:ml-(--sidebar-width)">
         <AdminNavbar />
         <div className="p-4 md:p-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>

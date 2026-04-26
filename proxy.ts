@@ -26,7 +26,7 @@ async function getSession(request: NextRequest): Promise<SessionResponse> {
   return (await response.json()) as SessionResponse;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const session = await getSession(request);
   const isApiRoute = pathname.startsWith("/api/");
