@@ -13,7 +13,12 @@ const createCardSchema = z.object({
   rfidTag: z.string().trim().min(1, "RFID Tag wajib diisi"),
   balance: z.number().min(0, "Saldo tidak boleh negatif").optional().default(0),
   isInside: z.boolean().optional().default(false),
-  status: z.string().trim().min(1, "Status wajib diisi").optional().default("active"),
+  status: z
+    .string()
+    .trim()
+    .min(1, "Status wajib diisi")
+    .optional()
+    .default("active"),
   userId: z.string().trim().min(1).optional().nullable(),
   lastBusId: z.string().trim().min(1).optional().nullable(),
 });
@@ -182,8 +187,24 @@ export default async function handler(
 
   const payload = parseBody.data;
 
+  if (payload.isInside && !payload.lastBusId) {
+    return ApiResponses.error(res, {
+      status: 400,
+      errors: [
+        {
+          key: "VALIDATION_ERROR",
+          field: "lastBusId",
+          message:
+            "lastBusId wajib diisi saat kartu berstatus berada di dalam bus",
+        },
+      ],
+    });
+  }
+
   if (payload.userId) {
-    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+    });
     if (!user) {
       return ApiResponses.error(res, {
         status: 400,
@@ -199,7 +220,9 @@ export default async function handler(
   }
 
   if (payload.lastBusId) {
-    const bus = await prisma.bus.findUnique({ where: { id: payload.lastBusId } });
+    const bus = await prisma.bus.findUnique({
+      where: { id: payload.lastBusId },
+    });
     if (!bus) {
       return ApiResponses.error(res, {
         status: 400,
@@ -244,7 +267,10 @@ export default async function handler(
 
     return ApiResponses.success(res, card, { status: 201 });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       return ApiResponses.error(res, {
         status: 409,
         errors: [
@@ -260,7 +286,10 @@ export default async function handler(
     return ApiResponses.error(res, {
       status: 500,
       errors: [
-        { key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat membuat kartu RFID" },
+        {
+          key: "INTERNAL_SERVER_ERROR",
+          message: "Terjadi kesalahan saat membuat kartu RFID",
+        },
       ],
     });
   }

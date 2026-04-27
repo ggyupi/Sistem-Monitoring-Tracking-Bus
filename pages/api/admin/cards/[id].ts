@@ -33,7 +33,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  if (req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
+  if (
+    req.method !== "GET" &&
+    req.method !== "PATCH" &&
+    req.method !== "DELETE"
+  ) {
     res.setHeader("Allow", "GET, PATCH, DELETE");
     return ApiResponses.error(res, {
       status: 405,
@@ -111,8 +115,45 @@ export default async function handler(
 
     const payload = parseBody.data;
 
+    const existingCard = await prisma.card.findUnique({
+      where: { rfidTag: cardId },
+      select: {
+        isInside: true,
+        lastBusId: true,
+      },
+    });
+
+    if (!existingCard) {
+      return ApiResponses.error(res, {
+        status: 404,
+        errors: [{ key: "NOT_FOUND", message: "Kartu RFID tidak ditemukan" }],
+      });
+    }
+
+    const nextIsInside = payload.isInside ?? existingCard.isInside;
+    const nextLastBusId =
+      payload.lastBusId === undefined
+        ? existingCard.lastBusId
+        : payload.lastBusId;
+
+    if (nextIsInside && !nextLastBusId) {
+      return ApiResponses.error(res, {
+        status: 400,
+        errors: [
+          {
+            key: "VALIDATION_ERROR",
+            field: "lastBusId",
+            message:
+              "lastBusId wajib diisi saat kartu berstatus berada di dalam bus",
+          },
+        ],
+      });
+    }
+
     if (payload.userId) {
-      const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+      const user = await prisma.user.findUnique({
+        where: { id: payload.userId },
+      });
       if (!user) {
         return ApiResponses.error(res, {
           status: 400,
@@ -128,7 +169,9 @@ export default async function handler(
     }
 
     if (payload.lastBusId) {
-      const bus = await prisma.bus.findUnique({ where: { id: payload.lastBusId } });
+      const bus = await prisma.bus.findUnique({
+        where: { id: payload.lastBusId },
+      });
       if (!bus) {
         return ApiResponses.error(res, {
           status: 400,
@@ -173,7 +216,10 @@ export default async function handler(
 
       return ApiResponses.success(res, updatedCard);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2025"
+      ) {
         return ApiResponses.error(res, {
           status: 404,
           errors: [{ key: "NOT_FOUND", message: "Kartu RFID tidak ditemukan" }],
@@ -183,7 +229,10 @@ export default async function handler(
       return ApiResponses.error(res, {
         status: 500,
         errors: [
-          { key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat memperbarui kartu RFID" },
+          {
+            key: "INTERNAL_SERVER_ERROR",
+            message: "Terjadi kesalahan saat memperbarui kartu RFID",
+          },
         ],
       });
     }
@@ -196,7 +245,10 @@ export default async function handler(
 
     return ApiResponses.success(res, { rfidTag: cardId });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
       return ApiResponses.error(res, {
         status: 404,
         errors: [{ key: "NOT_FOUND", message: "Kartu RFID tidak ditemukan" }],
@@ -206,7 +258,10 @@ export default async function handler(
     return ApiResponses.error(res, {
       status: 500,
       errors: [
-        { key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat menghapus kartu RFID" },
+        {
+          key: "INTERNAL_SERVER_ERROR",
+          message: "Terjadi kesalahan saat menghapus kartu RFID",
+        },
       ],
     });
   }

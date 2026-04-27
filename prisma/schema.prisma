@@ -102,6 +102,7 @@ model Bus {
   plateNumber    String
   isActive       Boolean @default(true)
   passengerCount Int     @default(0)
+  maxPassengers  Int     @default(50)
 
   // Relasi ke Route: Setiap bus terdaftar di satu rute tertentu
   routeId String?
@@ -150,7 +151,8 @@ model BusDeviceAssignment {
 }
 
 model Card {
-  rfidTag  String  @id
+  id       String  @id @default(uuid())
+  rfidTag  String  @unique
   balance  Float   @default(0)
   isInside Boolean @default(false)
   status   String  @default("active")

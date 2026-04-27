@@ -13,6 +13,7 @@ export type ApiMeta = {
 export type ApiSuccessResponse<T> = {
   success: true;
   data: T;
+  message?: string;
   meta?: ApiMeta;
   errors?: undefined;
 };
@@ -20,6 +21,7 @@ export type ApiSuccessResponse<T> = {
 export type ApiErrorResponse = {
   success: false;
   data: null;
+  message?: string;
   meta?: ApiMeta;
   errors: ApiErrorItem[];
 };
@@ -32,6 +34,7 @@ export class ApiResponses {
     data: T,
     options?: {
       status?: number;
+      message?: string;
       meta?: ApiMeta;
     },
   ) {
@@ -39,6 +42,7 @@ export class ApiResponses {
     return res.status(status).json({
       success: true,
       data,
+      message: options?.message,
       meta: options?.meta,
     });
   }
@@ -47,6 +51,7 @@ export class ApiResponses {
     res: NextApiResponse<ApiResponse<never>>,
     options: {
       status: number;
+      message?: string;
       errors: ApiErrorItem[];
       meta?: ApiMeta;
     },
@@ -54,6 +59,7 @@ export class ApiResponses {
     return res.status(options.status).json({
       success: false,
       data: null,
+      message: options.message,
       meta: options.meta,
       errors: options.errors,
     });

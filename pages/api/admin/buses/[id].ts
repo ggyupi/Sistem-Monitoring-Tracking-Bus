@@ -12,8 +12,17 @@ const idParamSchema = z.object({
 const updateBusSchema = z
   .object({
     busCode: z.string().trim().min(1, "Kode bus wajib diisi").optional(),
-    plateNumber: z.string().trim().min(1, "Nomor polisi wajib diisi").optional(),
+    plateNumber: z
+      .string()
+      .trim()
+      .min(1, "Nomor polisi wajib diisi")
+      .optional(),
     isActive: z.boolean().optional(),
+    maxPassengers: z.coerce
+      .number()
+      .int()
+      .min(1, "Kapasitas maksimal minimal 1")
+      .optional(),
     routeId: z.string().trim().min(1).optional().nullable(),
   })
   .refine((value) => Object.keys(value).length > 0, {
@@ -32,7 +41,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  if (req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
+  if (
+    req.method !== "GET" &&
+    req.method !== "PATCH" &&
+    req.method !== "DELETE"
+  ) {
     res.setHeader("Allow", "GET, PATCH, DELETE");
     return ApiResponses.error(res, {
       status: 405,
@@ -103,7 +116,9 @@ export default async function handler(
     const payload = parseBody.data;
 
     if (payload.routeId) {
-      const route = await prisma.route.findUnique({ where: { id: payload.routeId } });
+      const route = await prisma.route.findUnique({
+        where: { id: payload.routeId },
+      });
       if (!route) {
         return ApiResponses.error(res, {
           status: 400,
@@ -125,7 +140,9 @@ export default async function handler(
           busCode: payload.busCode,
           plateNumber: payload.plateNumber,
           isActive: payload.isActive,
-          routeId: payload.routeId === null ? null : payload.routeId ?? undefined,
+          maxPassengers: payload.maxPassengers,
+          routeId:
+            payload.routeId === null ? null : (payload.routeId ?? undefined),
         },
         include: {
           route: {
@@ -163,7 +180,12 @@ export default async function handler(
 
       return ApiResponses.error(res, {
         status: 500,
-        errors: [{ key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat memperbarui bus" }],
+        errors: [
+          {
+            key: "INTERNAL_SERVER_ERROR",
+            message: "Terjadi kesalahan saat memperbarui bus",
+          },
+        ],
       });
     }
   }
@@ -175,7 +197,10 @@ export default async function handler(
 
     return ApiResponses.success(res, { id: busId });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
       return ApiResponses.error(res, {
         status: 404,
         errors: [{ key: "NOT_FOUND", message: "Bus tidak ditemukan" }],
@@ -184,7 +209,12 @@ export default async function handler(
 
     return ApiResponses.error(res, {
       status: 500,
-      errors: [{ key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat menghapus bus" }],
+      errors: [
+        {
+          key: "INTERNAL_SERVER_ERROR",
+          message: "Terjadi kesalahan saat menghapus bus",
+        },
+      ],
     });
   }
 }

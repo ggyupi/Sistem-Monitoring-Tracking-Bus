@@ -13,6 +13,7 @@ export type BusItem = {
   plateNumber: string;
   isActive: boolean;
   passengerCount: number;
+  maxPassengers: number;
   routeId: string | null;
   route: RouteOption | null;
 };
@@ -26,6 +27,7 @@ type BusUpsertPayload = {
   busCode: string;
   plateNumber: string;
   isActive: boolean;
+  maxPassengers: number;
   routeId: string | null;
 };
 

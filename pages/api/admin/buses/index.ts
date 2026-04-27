@@ -13,6 +13,12 @@ const createBusSchema = z.object({
   busCode: z.string().trim().min(1, "Kode bus wajib diisi"),
   plateNumber: z.string().trim().min(1, "Nomor polisi wajib diisi"),
   isActive: z.boolean().optional().default(true),
+  maxPassengers: z.coerce
+    .number()
+    .int()
+    .min(1, "Kapasitas maksimal minimal 1")
+    .optional()
+    .default(50),
   routeId: z.string().trim().min(1).optional().nullable(),
 });
 
@@ -143,7 +149,9 @@ export default async function handler(
   const payload = parseBody.data;
 
   if (payload.routeId) {
-    const route = await prisma.route.findUnique({ where: { id: payload.routeId } });
+    const route = await prisma.route.findUnique({
+      where: { id: payload.routeId },
+    });
     if (!route) {
       return ApiResponses.error(res, {
         status: 400,
@@ -164,6 +172,7 @@ export default async function handler(
         busCode: payload.busCode,
         plateNumber: payload.plateNumber,
         isActive: payload.isActive,
+        maxPassengers: payload.maxPassengers,
         routeId: payload.routeId ?? undefined,
       },
       include: {
@@ -178,7 +187,10 @@ export default async function handler(
 
     return ApiResponses.success(res, bus, { status: 201 });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
       return ApiResponses.error(res, {
         status: 409,
         errors: [
@@ -193,7 +205,12 @@ export default async function handler(
 
     return ApiResponses.error(res, {
       status: 500,
-      errors: [{ key: "INTERNAL_SERVER_ERROR", message: "Terjadi kesalahan saat membuat bus" }],
+      errors: [
+        {
+          key: "INTERNAL_SERVER_ERROR",
+          message: "Terjadi kesalahan saat membuat bus",
+        },
+      ],
     });
   }
 }
