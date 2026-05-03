@@ -1,13 +1,23 @@
+import mqtt from "mqtt";
+
 export type Coordinate = [number, number];
 
-export type BusTelemetryStatus = "ON_SCHEDULE" | "NEAR_ARRIVAL" | "NORMAL";
+export type BusTelemetryStatus = "IN_TRANSIT" | "NEAR_ARRIVAL";
 
 export type BusTelemetry = {
   busId: string;
+  busCode?: string;
   position: Coordinate;
   nearestStop: string;
   etaMinutes: number;
   speedKph: number;
+  speed?: number;
+  alt?: number;
+  course?: number;
+  sat?: number;
+  hdop?: number;
+  valid?: boolean;
+  datetime?: string;
   passengerCount: number;
   status: BusTelemetryStatus;
   timestamp: number;
@@ -16,6 +26,12 @@ export type BusTelemetry = {
 export type FeedContext = {
   routeCoordinates: Coordinate[];
   stopNames: string[];
+  routeStops?: Array<{
+    name: string;
+    latitude: number;
+    longitude: number;
+    order: number;
+  }>;
   loopDurationSeconds?: number;
   busCount?: number;
 };
@@ -29,12 +45,6 @@ export interface RealtimeFeedAdapter {
     context: FeedContext,
   ): RealtimeFeedUnsubscribe;
 }
-
-type FeedFactoryInput = {
-  mode: "mock" | "mqtt";
-  mqttBrokerUrl?: string;
-  mqttTopic?: string;
-};
 
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
@@ -99,199 +109,353 @@ function pointAtDistance(
   return [lngA + (lngB - lngA) * ratio, latA + (latB - latA) * ratio];
 }
 
-function statusFromEta(etaMinutes: number): BusTelemetryStatus {
-  if (etaMinutes <= 2) {
-    return "NEAR_ARRIVAL";
-  }
+function projectPointToSegment(
+  point: Coordinate,
+  a: Coordinate,
+  b: Coordinate,
+): { projected: Coordinate; t: number; distance: number } {
+  const ax = a[0];
+  const ay = a[1];
+  const bx = b[0];
+  const by = b[1];
+  const px = point[0];
+  const py = point[1];
 
-  if (etaMinutes <= 5) {
-    return "ON_SCHEDULE";
-  }
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const abLengthSquared = abx * abx + aby * aby;
+  const t =
+    abLengthSquared <= 0
+      ? 0
+      : clamp((apx * abx + apy * aby) / abLengthSquared, 0, 1);
+  const projected: Coordinate = [ax + abx * t, ay + aby * t];
+  return {
+    projected,
+    t,
+    distance: distanceInMeters(point, projected),
+  };
+}
 
-  return "NORMAL";
+function statusFromEta(
+  etaMinutes: number,
+  isNearStop: boolean,
+): BusTelemetryStatus {
+  return isNearStop || etaMinutes <= 2 ? "NEAR_ARRIVAL" : "IN_TRANSIT";
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-export function createMockBusFeed(): RealtimeFeedAdapter {
-  return {
-    connect(onMessage, context) {
-      const coords = context.routeCoordinates;
-      const stopNames = context.stopNames;
+function buildStopWaypoints(context: FeedContext, cumulative: number[]) {
+  const routeStops = (context.routeStops ?? [])
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((stop) => {
+      const stopCoordinate: Coordinate = [stop.longitude, stop.latitude];
+      let bestProgress = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
 
-      if (!coords.length) {
-        return () => undefined;
+      for (let index = 1; index < context.routeCoordinates.length; index += 1) {
+        const a = context.routeCoordinates[index - 1];
+        const b = context.routeCoordinates[index];
+        const projection = projectPointToSegment(stopCoordinate, a, b);
+        if (projection.distance < bestDistance) {
+          bestDistance = projection.distance;
+          bestProgress =
+            (cumulative[index - 1] ?? 0) +
+            distanceInMeters(a, projection.projected);
+        }
       }
 
-      const cumulative = cumulativeDistance(coords);
-      const routeLength = Math.max(cumulative[cumulative.length - 1] ?? 0, 1);
-      const busCount = Math.max(context.busCount ?? 6, 1);
-      const minSpeedKph = 40;
-      const maxSpeedKph = 100;
-      const stopCount = Math.max(stopNames.length, 1);
-      const stopLength = routeLength / stopCount;
-      const intervalMs = 120;
-      const dwellDurationMs = 60_000;
-      const tickSeconds = intervalMs / 1000;
+      return {
+        name: stop.name,
+        progress: bestProgress,
+        coordinate: stopCoordinate,
+      };
+    })
+    .sort((a, b) => a.progress - b.progress);
 
-      const buses = Array.from({ length: busCount }, (_, index) => {
-        const baseSpeedKph = clamp(
-          52 + index * 5,
-          minSpeedKph + 2,
-          maxSpeedKph - 8,
-        );
+  if (routeStops.length > 0) {
+    return routeStops;
+  }
 
-        return {
-          busId: `Bus ${String.fromCharCode(65 + (index % 4))}${12 + index}`,
-          distanceProgress: (routeLength * index) / busCount,
-          baseSpeedKph,
-          passengerSeed: 10 + index * 3,
-          phase: (Math.PI / 3) * index,
-          dwellRemainingMs: 0,
-          currentStopIndex:
-            Math.floor((routeLength * index) / busCount / stopLength) %
-            stopCount,
-        };
-      });
+  const fallbackStops = context.stopNames.map((name, index) => ({
+    name,
+    progress:
+      (cumulative[cumulative.length - 1] ?? 0) *
+      (index / Math.max(context.stopNames.length - 1, 1)),
+    coordinate: context.routeCoordinates[index] ??
+      context.routeCoordinates[0] ?? [0, 0],
+  }));
 
-      let elapsedMs = 0;
+  return fallbackStops;
+}
 
-      const intervalId = window.setInterval(() => {
-        elapsedMs += intervalMs;
+function findNearestRouteProgress(
+  point: Coordinate,
+  routeCoordinates: Coordinate[],
+  cumulative: number[],
+): { progress: number; projected: Coordinate; distance: number } {
+  if (routeCoordinates.length <= 1) {
+    return {
+      progress: 0,
+      projected: routeCoordinates[0] ?? [0, 0],
+      distance: routeCoordinates[0]
+        ? distanceInMeters(point, routeCoordinates[0])
+        : 0,
+    };
+  }
 
-        buses.forEach((bus, index) => {
-          let speedKph = 0;
+  let bestProgress = 0;
+  let bestProjected: Coordinate = routeCoordinates[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
 
-          if (bus.dwellRemainingMs > 0) {
-            bus.dwellRemainingMs = Math.max(
-              0,
-              bus.dwellRemainingMs - intervalMs,
-            );
-            bus.distanceProgress =
-              (bus.currentStopIndex * stopLength) % routeLength;
-          } else {
-            const speedOscillation =
-              1 + Math.sin(elapsedMs / 3200 + bus.phase) * 0.12;
-            speedKph = clamp(
-              bus.baseSpeedKph * speedOscillation,
-              minSpeedKph,
-              maxSpeedKph,
-            );
-            const speedMetersPerSecond = speedKph / 3.6;
+  for (let index = 1; index < routeCoordinates.length; index += 1) {
+    const start = routeCoordinates[index - 1];
+    const end = routeCoordinates[index];
+    const projection = projectPointToSegment(point, start, end);
+    if (projection.distance < bestDistance) {
+      bestDistance = projection.distance;
+      bestProjected = projection.projected;
+      bestProgress =
+        (cumulative[index - 1] ?? 0) +
+        distanceInMeters(start, projection.projected);
+    }
+  }
 
-            const currentStopIndex =
-              Math.floor(bus.distanceProgress / stopLength) % stopCount;
-            const nextProgress =
-              (bus.distanceProgress + speedMetersPerSecond * tickSeconds) %
-              routeLength;
-            const nextStopIndex =
-              Math.floor(nextProgress / stopLength) % stopCount;
+  return {
+    progress: bestProgress,
+    projected: bestProjected,
+    distance: bestDistance,
+  };
+}
 
-            if (nextStopIndex !== currentStopIndex) {
-              bus.currentStopIndex = nextStopIndex;
-              bus.distanceProgress = (nextStopIndex * stopLength) % routeLength;
-              bus.dwellRemainingMs = dwellDurationMs;
-              speedKph = 0;
-            } else {
-              bus.currentStopIndex = currentStopIndex;
-              bus.distanceProgress = nextProgress;
-            }
+function findNearestStopAndEta(
+  busPosition: Coordinate,
+  routeCoordinates: Coordinate[],
+  routeStops: Array<{ name: string; progress: number; coordinate: Coordinate }>,
+  speedKph: number,
+) {
+  if (!routeCoordinates.length) {
+    return {
+      nearestStop: "Shelter",
+      etaMinutes: 0,
+      isNearStop: false,
+    };
+  }
+
+  const cumulative = cumulativeDistance(routeCoordinates);
+  const routeProgress = findNearestRouteProgress(
+    busPosition,
+    routeCoordinates,
+    cumulative,
+  );
+  const routeLength = Math.max(cumulative[cumulative.length - 1] ?? 0, 1);
+
+  let nextStop = routeStops.find(
+    (stop) => stop.progress >= routeProgress.progress + 1,
+  );
+  if (!nextStop) {
+    nextStop = routeStops[routeStops.length - 1] ?? {
+      name: "Shelter",
+      progress: routeLength,
+      coordinate: routeCoordinates[routeCoordinates.length - 1] ?? [0, 0],
+    };
+  }
+
+  let nearestStop = nextStop.name;
+  let distanceToStop = Math.max(nextStop.progress - routeProgress.progress, 0);
+
+  if (routeStops.length > 0) {
+    let nearestByDistance = routeStops[0];
+    let shortest = Number.POSITIVE_INFINITY;
+    for (const stop of routeStops) {
+      const stopDistance = distanceInMeters(busPosition, stop.coordinate);
+      if (stopDistance < shortest) {
+        shortest = stopDistance;
+        nearestByDistance = stop;
+      }
+    }
+
+    if (shortest <= 120) {
+      nearestStop = nearestByDistance.name;
+      distanceToStop = shortest;
+    }
+  }
+
+  const speedMetersPerSecond = Math.max(speedKph, 1) / 3.6;
+  const etaMinutes = Math.max(
+    1,
+    Math.round(distanceToStop / Math.max(speedMetersPerSecond, 1) / 60),
+  );
+  const isNearStop = distanceToStop <= 120 || etaMinutes <= 2;
+
+  return {
+    nearestStop,
+    etaMinutes,
+    isNearStop,
+    routeProgress: routeProgress.progress,
+    distanceToStop,
+  };
+}
+
+type BusLocationData = {
+  lat: number;
+  lng: number;
+  busId: string;
+  speed?: number;
+  alt?: number;
+  course?: number;
+  sat?: number;
+  hdop?: number;
+  valid?: boolean;
+  datetime?: string;
+};
+
+export function createMqttBusFeed(input: {
+  brokerUrl?: string;
+  topic?: string;
+  username?: string;
+  password?: string;
+}): RealtimeFeedAdapter {
+  return {
+    connect(onMessage, context) {
+      const brokerUrl = input.brokerUrl || "mqtt://localhost:1883";
+      const topicPattern = input.topic || "/bus/tracking/location";
+      const fallbackTopicPattern = topicPattern.includes("localtion")
+        ? topicPattern.replace("localtion", "location")
+        : topicPattern.replace("location", "localtion");
+      const subscriptionTopics = Array.from(
+        new Set([`${topicPattern}/#`, `${fallbackTopicPattern}/#`]),
+      );
+      const cumulative = cumulativeDistance(context.routeCoordinates);
+      const stopWaypoints = buildStopWaypoints(context, cumulative);
+
+      let client: ReturnType<typeof mqtt.connect> | null = null;
+
+      const connectToMqtt = () => {
+        try {
+          const clientOptions: Record<string, unknown> = {
+            reconnectPeriod: 1000,
+            connectTimeout: 30 * 1000,
+            clientId: `buswy-realtime-map-${Math.random().toString(36).substr(2, 9)}`,
+          };
+
+          // Add authentication if provided
+          if (input.username) {
+            clientOptions.username = input.username;
+          }
+          if (input.password) {
+            clientOptions.password = input.password;
           }
 
-          const speedOscillation =
-            1 + Math.sin(elapsedMs / 7000 + bus.phase) * 0.08;
-          const speedMetersPerSecond = speedKph / 3.6;
+          client = mqtt.connect(brokerUrl, clientOptions);
 
-          const position = pointAtDistance(
-            coords,
-            cumulative,
-            bus.distanceProgress,
-          );
-
-          const progress = bus.distanceProgress / routeLength;
-          const distanceInSegment = bus.distanceProgress % stopLength;
-          const distanceToNextStop = Math.max(
-            stopLength - distanceInSegment,
-            10,
-          );
-          const etaMinutes =
-            bus.dwellRemainingMs > 0
-              ? 1
-              : Math.max(
-                  1,
-                  Math.min(
-                    12,
-                    Math.round(
-                      distanceToNextStop /
-                        Math.max(speedMetersPerSecond, 1) /
-                        60,
-                    ),
-                  ),
-                );
-          const stopIndex =
-            bus.dwellRemainingMs > 0
-              ? bus.currentStopIndex
-              : Math.floor(progress * stopCount) % stopCount;
-
-          const passengerWave =
-            bus.passengerSeed +
-            Math.sin(elapsedMs / 7000 + bus.phase) * 9 * speedOscillation +
-            index;
-          const passengerCount = Math.max(
-            3,
-            Math.min(58, Math.round(passengerWave)),
-          );
-
-          onMessage({
-            busId: bus.busId,
-            position,
-            nearestStop: stopNames[stopIndex] ?? "Shelter",
-            etaMinutes,
-            speedKph: Math.round((speedKph + Number.EPSILON) * 10) / 10,
-            passengerCount,
-            status: statusFromEta(etaMinutes),
-            timestamp: Date.now(),
+          client.on("connect", () => {
+            console.log("MQTT connected, subscribing to:", subscriptionTopics);
+            client?.subscribe(subscriptionTopics, (err) => {
+              if (err) {
+                console.error("MQTT subscribe error:", err);
+              } else {
+                console.log("MQTT subscribed successfully");
+              }
+            });
           });
-        });
-      }, 120);
+
+          client.on("message", (topic: string, message: Buffer) => {
+            try {
+              const rawMessage = message.toString();
+              console.log("MQTT message received:", {
+                topic,
+                payload: rawMessage,
+              });
+
+              const payload = JSON.parse(rawMessage) as BusLocationData;
+              console.log("MQTT payload parsed:", payload);
+              const { busId, lat, lng } = payload;
+
+              if (
+                !busId ||
+                typeof lat !== "number" ||
+                typeof lng !== "number"
+              ) {
+                console.warn("Invalid MQTT payload:", payload);
+                return;
+              }
+
+              const position: Coordinate = [lng, lat];
+              const now = Date.now();
+
+              const speed = Number(payload.speed ?? 0);
+              const speedKph = Number.isFinite(speed) ? speed : 0;
+              const telemetry = findNearestStopAndEta(
+                position,
+                context.routeCoordinates,
+                stopWaypoints,
+                speedKph,
+              );
+
+              onMessage({
+                busId,
+                position,
+                nearestStop: telemetry.nearestStop,
+                etaMinutes: telemetry.etaMinutes,
+                speedKph,
+                speed: Number.isFinite(speed) ? speed : undefined,
+                alt: payload.alt,
+                course: payload.course,
+                sat: payload.sat,
+                hdop: payload.hdop,
+                valid: payload.valid,
+                datetime: payload.datetime,
+                passengerCount: 0,
+                status: statusFromEta(
+                  telemetry.etaMinutes,
+                  telemetry.isNearStop,
+                ),
+                timestamp: now,
+              });
+            } catch (err) {
+              console.error("Error processing MQTT message:", err);
+            }
+          });
+
+          client.on("error", (err: Error) => {
+            console.error("MQTT error:", err);
+          });
+
+          client.on("disconnect", () => {
+            console.log("MQTT disconnected");
+          });
+        } catch (err) {
+          console.error("Failed to create MQTT connection:", err);
+        }
+      };
+
+      connectToMqtt();
 
       return () => {
-        window.clearInterval(intervalId);
+        if (client) {
+          client.end();
+        }
       };
     },
   };
 }
 
-export function createMqttBusFeed(input: {
+export function createRealtimeBusFeed(input: {
   brokerUrl?: string;
   topic?: string;
+  username?: string;
+  password?: string;
 }): RealtimeFeedAdapter {
-  return {
-    connect(onMessage, context) {
-      console.warn(
-        "MQTT adapter belum dihubungkan. Menggunakan mock feed sebagai fallback.",
-        {
-          brokerUrl: input.brokerUrl,
-          topic: input.topic,
-        },
-      );
-
-      return createMockBusFeed().connect(onMessage, context);
-    },
-  };
-}
-
-export function createRealtimeBusFeed(
-  input: FeedFactoryInput,
-): RealtimeFeedAdapter {
-  if (input.mode === "mqtt") {
-    return createMqttBusFeed({
-      brokerUrl: input.mqttBrokerUrl,
-      topic: input.mqttTopic,
-    });
-  }
-
-  return createMockBusFeed();
+  return createMqttBusFeed({
+    brokerUrl: input.brokerUrl,
+    topic: input.topic,
+    username: input.username,
+    password: input.password,
+  });
 }

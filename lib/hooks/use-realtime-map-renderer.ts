@@ -106,6 +106,8 @@ const busFrontIconNode = Symbol("legacy-bus-front-icon");
 type UseRealtimeMapRendererParams = {
   mapRef: RefObject<HTMLDivElement | null>;
   routes: RealtimeMapRoute[];
+  busCodeById: Record<string, string>;
+  activeRouteStations: RealtimeMapStation[];
   activeRouteId: string | null;
   activeRouteCoordinates: Coordinate[];
   activeStopNames: string[];
@@ -114,7 +116,6 @@ type UseRealtimeMapRendererParams = {
   mapStyle: MapStyleKey;
   isTiltedView: boolean;
   token?: string;
-  feedMode: "mock" | "mqtt";
   userLocationRef: MutableRefObject<Coordinate | null>;
   onTokenMissingChange: (value: boolean) => void;
 };
@@ -181,6 +182,8 @@ function upsertUserLocationSource(
 export function useRealtimeMapRenderer({
   mapRef,
   routes,
+  busCodeById,
+  activeRouteStations,
   activeRouteId,
   activeRouteCoordinates,
   activeStopNames,
@@ -189,7 +192,6 @@ export function useRealtimeMapRenderer({
   mapStyle,
   isTiltedView,
   token,
-  feedMode,
   userLocationRef,
   onTokenMissingChange,
 }: UseRealtimeMapRendererParams) {
@@ -424,7 +426,7 @@ export function useRealtimeMapRenderer({
           type: "symbol",
           source: "bus-point",
           layout: {
-            "text-field": ["get", "busId"],
+            "text-field": ["coalesce", ["get", "busCode"], ["get", "busId"]],
             "text-size": 11,
             "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
             "text-offset": [0, 1.6],
@@ -466,8 +468,13 @@ export function useRealtimeMapRenderer({
           ];
           const props = feature.properties ?? {};
           const selectedBusId = String(props.busId ?? "-");
-          const selectedSpeed = Number(props.speedKph ?? 0);
-          const selectedPassenger = Number(props.passengerCount ?? 0);
+          const selectedBusCode = String(
+            props.busCode ?? busCodeById[selectedBusId] ?? selectedBusId,
+          );
+          const selectedSpeed = Number(props.speed ?? props.speedKph ?? 0);
+          const selectedNearestStop = String(props.nearestStop ?? "-");
+          const selectedEtaMinutes = Number(props.etaMinutes ?? 0);
+          const selectedDatetime = String(props.datetime ?? "-");
 
           activeBusIdRef.current = selectedBusId;
 
@@ -480,19 +487,21 @@ export function useRealtimeMapRenderer({
           })
             .setLngLat(coordinates)
             .setHTML(
-              buildBusPopupHtml(
-                selectedBusId,
-                selectedPassenger,
-                selectedSpeed,
-              ),
+              buildBusPopupHtml(selectedBusCode, {
+                speed: selectedSpeed,
+                nearestStop: selectedNearestStop,
+                etaMinutes: selectedEtaMinutes,
+                datetime: selectedDatetime,
+              }),
             )
             .addTo(map);
         });
 
         const feed = createRealtimeBusFeed({
-          mode: feedMode,
-          mqttBrokerUrl: process.env.NEXT_PUBLIC_MQTT_BROKER_URL,
-          mqttTopic: process.env.NEXT_PUBLIC_MQTT_TOPIC,
+          brokerUrl: process.env.NEXT_PUBLIC_MQTT_BROKER_URL,
+          topic: process.env.NEXT_PUBLIC_MQTT_TOPIC,
+          username: process.env.NEXT_PUBLIC_MQTT_USERNAME,
+          password: process.env.NEXT_PUBLIC_MQTT_PASSWORD,
         });
 
         const busesById = new Map<string, BusTelemetry>();
@@ -518,15 +527,17 @@ export function useRealtimeMapRenderer({
               : undefined;
 
             if (popup && selectedBus && shouldSyncPanel) {
-              popup
-                .setLngLat(selectedBus.position)
-                .setHTML(
-                  buildBusPopupHtml(
-                    selectedBus.busId,
-                    selectedBus.passengerCount,
-                    selectedBus.speedKph,
-                  ),
-                );
+              popup.setLngLat(selectedBus.position).setHTML(
+                buildBusPopupHtml(
+                  busCodeById[selectedBus.busId] ?? selectedBus.busId,
+                  {
+                    speed: selectedBus.speed,
+                    nearestStop: selectedBus.nearestStop,
+                    etaMinutes: selectedBus.etaMinutes,
+                    datetime: selectedBus.datetime,
+                  },
+                ),
+              );
 
               const now = Date.now();
               if (now - lastCameraFollowAt > 450) {
@@ -543,10 +554,17 @@ export function useRealtimeMapRenderer({
               type: "Feature" as const,
               properties: {
                 busId: bus.busId,
+                busCode: busCodeById[bus.busId] ?? bus.busId,
                 nearestStop: bus.nearestStop,
                 etaMinutes: bus.etaMinutes,
                 speedKph: bus.speedKph,
-                passengerCount: bus.passengerCount,
+                speed: bus.speed,
+                alt: bus.alt,
+                course: bus.course,
+                sat: bus.sat,
+                hdop: bus.hdop,
+                valid: bus.valid,
+                datetime: bus.datetime,
               },
               geometry: {
                 type: "Point" as const,
@@ -566,6 +584,7 @@ export function useRealtimeMapRenderer({
           {
             routeCoordinates: feedCoordinates,
             stopNames: activeStopNames,
+            routeStops: activeRouteStations,
             loopDurationSeconds: 80,
             busCount: 2,
           },
@@ -585,9 +604,10 @@ export function useRealtimeMapRenderer({
   }, [
     activeRouteCoordinates,
     activeRouteId,
+    activeRouteStations,
     activeStopNames,
     allStations,
-    feedMode,
+    busCodeById,
     hasMapData,
     isTiltedView,
     mapRef,

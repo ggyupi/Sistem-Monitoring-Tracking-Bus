@@ -28,10 +28,15 @@ const manrope = Manrope({
 
 type RealtimeMapPageProps = {
   routes: RealtimeMapRoute[];
+  busesActive: Array<{
+    id: string;
+    busCode: string | null;
+  }>;
 };
 
 export default function RealtimeMapPage({
   routes,
+  busesActive,
 }: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -44,11 +49,10 @@ export default function RealtimeMapPage({
   const [mapStyle, setMapStyle] = useState<MapStyleKey>("light");
   const [isTiltedView, setIsTiltedView] = useState(true);
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
-  const feedMode =
-    process.env.NEXT_PUBLIC_BUS_FEED_MODE === "mqtt" ? "mqtt" : "mock";
 
   const activeRoute = routes[0] ?? null;
   const activeRouteCoordinates = activeRoute?.coordinates ?? [];
+  const activeRouteStations = activeRoute?.stations ?? [];
   const activeStopNames = useMemo(
     () => activeRoute?.stations.map((station) => station.name) ?? [],
     [activeRoute],
@@ -69,12 +73,21 @@ export default function RealtimeMapPage({
   const hasMapData =
     routes.some((route) => route.coordinates.length >= 2) ||
     allStations.length > 0;
+  const busCodeById = useMemo(
+    () =>
+      Object.fromEntries(
+        busesActive.map((bus) => [bus.id, bus.busCode ?? bus.id]),
+      ),
+    [busesActive],
+  );
 
   const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
   const { mapInstanceRef, upsertUserLocationSource } = useRealtimeMapRenderer({
     mapRef,
     routes,
+    busCodeById,
+    activeRouteStations,
     activeRouteId: activeRoute?.id ?? null,
     activeRouteCoordinates,
     activeStopNames,
@@ -83,7 +96,6 @@ export default function RealtimeMapPage({
     mapStyle,
     isTiltedView,
     token,
-    feedMode,
     userLocationRef,
     onTokenMissingChange: setTokenMissing,
   });
@@ -291,9 +303,29 @@ export const getServerSideProps: GetServerSideProps<
     };
   });
 
+  const busesActive = await prisma.bus.findMany({
+    where: {
+      isActive: true,
+    },
+    select: {
+      id: true,
+      plateNumber: true,
+      busCode: true,
+      route: {
+        select: {
+          id: true,
+          routeName: true,
+        },
+      },
+      passengerCount: true,
+      maxPassengers: true,
+    },
+  });
+
   return {
     props: {
       routes,
+      busesActive,
     },
   };
 };

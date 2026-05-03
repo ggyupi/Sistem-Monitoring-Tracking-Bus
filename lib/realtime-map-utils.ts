@@ -92,15 +92,24 @@ export function pickRouteColor(index: number): string {
 }
 
 export function buildBusPopupHtml(
-  busId: string,
-  passengerCount: number,
-  speedKph: number,
+  busCode: string,
+  details: {
+    speed?: number;
+    datetime?: string;
+    nearestStop?: string;
+    etaMinutes?: number;
+  },
 ): string {
+  const speedValue =
+    typeof details.speed === "number" ? details.speed.toFixed(4) : "-";
+
   return (
     `<div class="bus-popup-card">` +
-    `<div class="bus-popup-title">${busId}</div>` +
-    `<div class="bus-popup-line"><span>Penumpang</span><strong>${passengerCount}</strong></div>` +
-    `<div class="bus-popup-line"><span>Kecepatan</span><strong>${speedKph.toFixed(1)} km/j</strong></div>` +
+    `<div class="bus-popup-title">${busCode}</div>` +
+    `<div class="bus-popup-line"><span>Kecepatan</span><strong>${speedValue}</strong></div>` +
+    `<div class="bus-popup-line"><span>Last Update</span><strong>${details.datetime ?? "-"}</strong></div>` +
+    `<div class="bus-popup-line"><span>Posisi</span><strong>${details.nearestStop ?? "-"}</strong></div>` +
+    `<div class="bus-popup-line"><span>ETA</span><strong>${typeof details.etaMinutes === "number" ? `${details.etaMinutes} menit` : "-"}</strong></div>` +
     `</div>`
   );
 }

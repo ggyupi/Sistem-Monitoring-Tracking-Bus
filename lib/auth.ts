@@ -4,7 +4,11 @@ import { prisma } from "./prisma";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "postgresql" }),
-  baseURL: "http://localhost:3000/",
+  baseURL: process.env.BETTER_AUTH_BASE_URL || "http://localhost:3000",
+  trustedOrigins: (process.env.BETTER_AUTH_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim()),
+
   user: {
     additionalFields: {
       role: {
